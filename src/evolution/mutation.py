@@ -1,3 +1,5 @@
+import numpy as np
+
 import math
 import random
 
@@ -476,10 +478,31 @@ def mutate_some_weights(
         False if the circuit has no weights to mutate, True otherwise.
     """
 
+    gate_parameter_pairs = []
+
+    for gate in circuit.gates:
+        for i in range(len(gate.parameters)):
+            gate_parameter_pairs.append(gate, i)
+
+    if len(gate_parameter_pairs) == 0:
+        # no weights to mutate
+        return False
+
+    random.shuffle(gate_parameter_pairs)
+
+    # modify at least one parameter
+    n_modifications = max(1, round(percentage * len(gate_parameter_pairs)))
+
+    for j in range(n_modifications):
+        gate, i = gate_parameter_pairs[j]
+
+        # give the parameter a new random weight
+        gate.parameters[i] = random.uniform(-math.pi, math.pi)
+
 
 def mutate_all_weights(
     circuit: CircuitGenome,
-    scale: float,
+    scale: float = math.pi,
 ) -> bool:
     """
 
@@ -491,3 +514,20 @@ def mutate_all_weights(
     Returns:
         False if the circuit has no weights to mutate, True otherwise.
     """
+
+    modified = False
+
+    for gate in circuit.gates:
+        for i in range(len(gate.parameters)):
+            gate.parameters[i] += np.random.normal(scale=scale)
+
+            # make sure parameters stay within -pi to pi
+            if gate.parameters[i] < -math.pi:
+                gate.parameters[i] += 2.0 * math.pi
+
+            if gate.parameters[i] > math.pi:
+                gate.parameters[i] -= 2.0 * math.pi
+
+            modified = True
+
+    return modified
