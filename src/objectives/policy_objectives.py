@@ -688,27 +688,56 @@ def rollout_reinforce(
 
     ep_return = 0.0
 
+    # Optional Gaussian std for continuous REINFORCE
+    if spec.action_space == "continuous":
+        log_std = torch.full(
+            (spec.n_actions,),
+            float(getattr(spec, "init_log_std", -0.5)),
+            dtype=torch.float32,
+        )
+
     for _ in range(spec.max_steps):
         x = spec.obs_encoder(obs)
-
         out = genome.circuit(x, params)
-        if spec.return_expvals:
-            out = torch.stack(list(out))
-            logits = logits_from_kexpvals(out, spec.n_actions)
+
+        if spec.action_space == "discrete":
+            if spec.return_expvals:
+                out = torch.stack(list(out))
+                logits = logits_from_kexpvals(out, spec.n_actions)
+            else:
+                probs = torch.as_tensor(out, dtype=torch.float32).flatten()
+                probs = probs[: spec.n_actions]
+                probs = probs / (probs.sum() + 1e-12)
+                logits = torch.log(probs.clamp_min(1e-12))
+
+            dist = Categorical(logits=logits)
+            a = dist.sample()
+            action_env = int(a.item())
+            logp = dist.log_prob(a)
+            ent = dist.entropy()
+
         else:
-            probs = torch.as_tensor(out, dtype=torch.float32).flatten()
-            probs = probs[: spec.n_actions]
-            probs = probs / (probs.sum() + 1e-12)
-            logits = torch.log(probs.clamp_min(1e-12))
+            feats = torch.as_tensor(out, dtype=torch.float32).flatten()
+            mu = feats[: spec.n_actions]
+            if mu.numel() < spec.n_actions:
+                pad = torch.zeros(spec.n_actions - mu.numel(), dtype=mu.dtype)
+                mu = torch.cat([mu, pad], dim=0)
 
-        dist = Categorical(logits=logits)
-        a = dist.sample()
+            std = torch.exp(log_std)
+            dist = torch.distributions.Normal(mu, std)
 
-        obs, r, terminated, truncated, _ = env.step(int(a.item()))
+            a = dist.sample()
+            logp = dist.log_prob(a).sum()
+            ent = dist.entropy().sum()
+
+            action_env = a.detach().cpu().numpy()
+            action_env = _clip_action(action_env, spec)
+
+        obs, r, terminated, truncated, _ = env.step(action_env)
         ep_return += float(r)
 
-        logps.append(dist.log_prob(a))
-        entropies.append(dist.entropy())
+        logps.append(logp)
+        entropies.append(ent)
         rewards.append(torch.tensor(r, dtype=torch.float32))
 
         if terminated or truncated:
@@ -1701,7 +1730,12 @@ def train_value_based(genome: CircuitGenome, *, spec: RLSpec) -> CircuitGenome:
 
 
 def cartpole_spec(
-    *, episodes: int = 100, lr: float = 1e-2, seed: int = 0, algo: str = "reinforce"
+    *,
+    episodes: int = 100,
+    eval_episodes: int = 10,
+    lr: float = 1e-2,
+    seed: int = 0,
+    algo: str = "reinforce",
 ) -> RLSpec:
     """Create a ready-to-use CartPole RLSpec.
 
@@ -1733,7 +1767,7 @@ def cartpole_spec(
         lr=lr,
         seed=seed,
         max_steps=500,
-        eval_episodes=10,
+        eval_episodes=eval_episodes,
     )
 
 
@@ -1741,7 +1775,8 @@ def frozenlake_spec(
     *,
     map_name: str = "4x4",
     is_slippery: bool = True,
-    episodes: int = 300,
+    episodes: int = 1000,
+    eval_episodes: int = 100,
     lr: float = 2e-2,
     seed: int = 0,
     algo: str = "reinforce",
@@ -1780,7 +1815,7 @@ def frozenlake_spec(
         lr=lr,
         seed=seed,
         max_steps=100,
-        eval_episodes=20,
+        eval_episodes=eval_episodes,
         env_kwargs={"is_slippery": is_slippery},
     )
 
@@ -1788,6 +1823,7 @@ def frozenlake_spec(
 def halfcheetah_spec(
     *,
     episodes: int = 200,
+    eval_episodes: int = 10,
     lr: float = 3e-4,
     seed: int = 0,
     algo: str = "ppo",
@@ -1817,7 +1853,7 @@ def halfcheetah_spec(
         lr=lr,
         seed=seed,
         max_steps=1000,
-        eval_episodes=10,
+        eval_episodes=eval_episodes,
         rollout_steps=2048,
         ppo_epochs=10,
         ppo_minibatch=256,
@@ -1832,6 +1868,7 @@ def halfcheetah_spec(
 def walker2d_spec(
     *,
     episodes: int = 200,
+    eval_episodes: int = 10,
     lr: float = 3e-4,
     seed: int = 0,
     algo: str = "ppo",
@@ -1859,7 +1896,7 @@ def walker2d_spec(
         lr=lr,
         seed=seed,
         max_steps=1000,
-        eval_episodes=10,
+        eval_episodes=eval_episodes,
         rollout_steps=2048,
         ppo_epochs=10,
         ppo_minibatch=256,
@@ -1874,6 +1911,7 @@ def walker2d_spec(
 def mountaincar_continuous_spec(
     *,
     episodes: int = 200,
+    eval_episodes: int = 10,
     lr: float = 3e-4,
     seed: int = 0,
     algo: str = "ppo",
@@ -1899,7 +1937,7 @@ def mountaincar_continuous_spec(
         lr=lr,
         seed=seed,
         max_steps=999,
-        eval_episodes=10,
+        eval_episodes=eval_episodes,
         rollout_steps=2048,
         ppo_epochs=10,
         ppo_minibatch=256,
@@ -1913,6 +1951,7 @@ def minigrid_spec(
     env_id: str = "MiniGrid-Empty-8x8-v0",
     obs_wrapper: str = "flat",  # "flat" or "image"
     episodes: int = 200,
+    eval_episodes: int = 10,
     lr: float = 1e-3,
     seed: int = 0,
     algo: str = "ppo",
@@ -1973,7 +2012,7 @@ def minigrid_spec(
         lr=lr,
         seed=seed,
         max_steps=200,
-        eval_episodes=10,
+        eval_episodes=eval_episodes,
         rollout_steps=1024,
         ppo_epochs=4,
         ppo_minibatch=128,
