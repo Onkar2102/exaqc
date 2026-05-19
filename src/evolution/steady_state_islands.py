@@ -392,12 +392,18 @@ class SteadyStateIslands(PopulationStrategy):
 
         parents = None
 
-        if random.uniform(0.0, 1.0) < self.intra_island_crossover_rate:
-            # do intra island crossover
+        # check to see if we have enough genomes on the target or best
+        # island to do intra-island crossover.  if there is only one
+        # island always do intra-island crossover.
+
+        if len(self.islands) == 1 or random.uniform(0.0, 1.0) < self.intra_island_crossover_rate:
+            # try to do intra island crossover
             logger.info(
                 f"intra island crossover on {target_island.status} island: potential parent "
                 f"length: {len(target_island.population)}, n_parents: {n_parents}"
             )
+
+            metadata["crossover_type"] = "intra-island"
 
             if target_island.status == "full":
                 parents = target_island.get_parents(n_parents)
@@ -416,11 +422,15 @@ class SteadyStateIslands(PopulationStrategy):
                 )
                 exit(1)
 
-        else:
+        # there weren't enough parents at the target (or best) island to get  
+        # intra-island parents so fall back to inter-island parents
+        if parents is None:
             # do inter island crossover
 
             # potential other parents can come from all other islands
             potential_parents = []
+
+            metadata["crossover_type"] = "inter-island"
 
             for island in self.islands:
                 if island != target_island:

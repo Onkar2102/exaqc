@@ -16,6 +16,8 @@ from src.evolution.mutation import (
     add_gate_with_selection,
     disable_gate,
     enable_gate,
+    mutate_all_weights,
+    mutate_some_weights,
     reorder_gate,
     qubit_swap,
 )
@@ -99,6 +101,9 @@ class EXAQC:
             )
             exit(1)
 
+        logger.info(f"initial input qubits: {input_qubits}")
+        logger.info(f"initial output qubits: {output_qubits}")
+
         self.input_qubits: list[tuple[str, int]] = input_qubits
         if self.input_qubits is None:
             self.input_qubits = expand_registers(input_registers)
@@ -109,6 +114,9 @@ class EXAQC:
                 self.output_qubits = self.input_qubits.copy()
             else:
                 self.output_qubits = expand_registers(output_registers)
+
+        logger.info(f"input qubits: {self.input_qubits}")
+        logger.info(f"output qubits: {self.output_qubits}")
 
         logger.info("Starting EXAQC with the following allowed gates:")
         for gate in sorted(
@@ -201,8 +209,8 @@ class EXAQC:
         """
         hyperparameters["learning_rate"] = 0.0010
         # hyperparameters["epochs"] = random.choice([5, 10])
-        hyperparameters["epochs"] = self.saved_epochs
-        # hyperparameters["epochs"] = 10
+        #hyperparameters["epochs"] = self.saved_epochs
+        hyperparameters["epochs"] = 10
 
         return hyperparameters
 
@@ -224,7 +232,7 @@ class EXAQC:
 
         elif self.mutation_strategy[0] == "exponential":
             scale = float(self.mutation_strategy[1])
-            n_mutations = round(np.random.exponential(scale=scale)) + 1
+            n_mutations = min(round(np.random.exponential(scale=scale)) + 1, 10)
             logger.info(f"exponential mutation count generated: {n_mutations}")
             return n_mutations
 
@@ -261,6 +269,8 @@ class EXAQC:
             + ["enable_gate"]  # 5%
             + ["disable_gate"] * 2  # 10%
             + ["clone"] * 2  # 10%
+            # + ["mutate_some_weights"] * 2
+            # + ["mutate_all_weights"] * 2
         )
 
         # only use the gates with which do not still require some validation from us to
@@ -314,6 +324,12 @@ class EXAQC:
                 case "qubit_swap":
                     modified = qubit_swap(child)
 
+                case "mutate_some_weights":
+                    modified = mutate_some_weights(child)
+
+                case "mutate_all_weights":
+                    modified = mutate_all_weights(child)
+
             if modified:
                 # track the mutation that actually modified the child
                 child.metadata["generated_by"].append(mutation)
@@ -323,8 +339,8 @@ class EXAQC:
 
     def generate_genome(
         self,
-        binary_crossover_rate: float = 0.10,
-        n_ary_crossover_rate: float = 0.10,
+        binary_crossover_rate: float = 0.00,
+        n_ary_crossover_rate: float = 0.20,
         exponential_crossover_rate: float = 0.10,
         n_ary_parents: int = 5,
     ) -> CircuitGenome:
@@ -396,7 +412,8 @@ class EXAQC:
                         continue
 
                 elif r < n_ary_cutoff:
-                    n_ary_parents = round(np.random.exponential(scale=1)) + 2
+                    n_ary_parents = min(round(np.random.exponential(scale=0.5)) + 2, 10)
+                    logger.info(f"selected {n_ary_parents} parents for crossover")
                     parents, metadata = self.population.get_parents(n_ary_parents)
 
                     if parents is None:

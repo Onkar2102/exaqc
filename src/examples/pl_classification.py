@@ -54,6 +54,7 @@ def eval_probs_ce_and_acc(
     dataset: Iterable[tuple[torch.Tensor, torch.Tensor, str]],
     *,
     n_classes: int,
+    encoding: str,
     loss: Optional[str] = None,
     alpha: torch.Tensor = None,
 ) -> dict[str, float]:
@@ -64,7 +65,7 @@ def eval_probs_ce_and_acc(
     # Ensure qnode exists
     if getattr(genome, "circuit", None) is None or not callable(genome.circuit):
         # IMPORTANT: we want probs readout for classification
-        genome.generate_pennylane_circuit(return_probs=True, input_mode="angle")
+        genome.generate_pennylane_circuit(return_probs=True, input_mode=encoding)
 
     loss_fn = LOSS_REGISTRY[loss]
 
@@ -202,6 +203,7 @@ class ClassificationObjective(Objective):
             n_classes=self.n_classes,
             loss=self.loss,
             alpha=alpha,
+            encoding=encoding,
         )
         test_metrics = eval_probs_ce_and_acc(
             genome,
@@ -209,6 +211,7 @@ class ClassificationObjective(Objective):
             n_classes=self.n_classes,
             loss=self.loss,
             alpha=alpha,
+            encoding=encoding,
         )
 
         genome.fitness = {
@@ -396,6 +399,6 @@ if __name__ == "__main__":
         mutation_strategy=args.mutation_strategy,
         run_for=args.number_genomes,
         input_registers={"input": min(args.input_qubits, objective.input_size)},
-        output_registers={"output": math.ceil(math.log(objective.n_classes, 2))},
+        output_registers={"input": math.ceil(math.log(objective.n_classes, 2))},
         target="pennylane",
     )

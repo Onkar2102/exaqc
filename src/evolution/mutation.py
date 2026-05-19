@@ -466,7 +466,7 @@ def add_gate_with_selection(
 
 def mutate_some_weights(
     circuit: CircuitGenome,
-    percentage: float,
+    percentage: float = 0.2,
 ) -> bool:
     """
 
@@ -481,8 +481,8 @@ def mutate_some_weights(
     gate_parameter_pairs = []
 
     for gate in circuit.gates:
-        for i in range(len(gate.parameters)):
-            gate_parameter_pairs.append(gate, i)
+        for parameter_name in gate.parameters.keys():
+            gate_parameter_pairs.append((gate, parameter_name))
 
     if len(gate_parameter_pairs) == 0:
         # no weights to mutate
@@ -493,11 +493,13 @@ def mutate_some_weights(
     # modify at least one parameter
     n_modifications = max(1, round(percentage * len(gate_parameter_pairs)))
 
-    for j in range(n_modifications):
-        gate, i = gate_parameter_pairs[j]
+    for i in range(n_modifications):
+        gate, parameter_name = gate_parameter_pairs[i]
 
         # give the parameter a new random weight
-        gate.parameters[i] = random.uniform(-math.pi, math.pi)
+        gate.parameters[parameter_name] = random.uniform(-math.pi, math.pi)
+
+    return True
 
 
 def mutate_all_weights(
@@ -518,15 +520,15 @@ def mutate_all_weights(
     modified = False
 
     for gate in circuit.gates:
-        for i in range(len(gate.parameters)):
-            gate.parameters[i] += np.random.normal(scale=scale)
+        for parameter_name in gate.parameters.keys():
+            gate.parameters[parameter_name] += np.random.normal(scale=scale)
 
             # make sure parameters stay within -pi to pi
-            if gate.parameters[i] < -math.pi:
-                gate.parameters[i] += 2.0 * math.pi
+            if gate.parameters[parameter_name] < -math.pi:
+                gate.parameters[parameter_name] += 2.0 * math.pi
 
-            if gate.parameters[i] > math.pi:
-                gate.parameters[i] -= 2.0 * math.pi
+            if gate.parameters[parameter_name] > math.pi:
+                gate.parameters[parameter_name] -= 2.0 * math.pi
 
             modified = True
 
