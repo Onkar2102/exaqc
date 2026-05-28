@@ -3,16 +3,12 @@ from __future__ import annotations
 import argparse
 import csv
 import numpy as np
-import json
 import sys
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 from loguru import logger
-from pathlib import Path
-
-from src.circuits.circuit import CircuitGenome
 
 
 def get_group_metrics(
@@ -49,17 +45,20 @@ def get_group_metrics(
         best_column = []
         filename = directory + "/exaqc_history.csv"
         print(f"\topening: {filename}")
-        with open(filename, mode='r') as file:
+        with open(filename, mode="r") as file:
             reader = csv.DictReader(file)
             for row in reader:
-                best_column.append(float(row['best_genome_train_fitness']))
+                best_column.append(float(row["best_genome_train_fitness"]))
 
         if len(best_column) < column_max_length:
-            print(f"ERROR: this file only had {len(best_column)} rows, less than the minimum required column max length: {column_max_length}")
+            print(
+                f"ERROR: this file only had {len(best_column)} rows, less than the "
+                f"minimum required column max length: {column_max_length}"
+            )
             exit(1)
 
         print(f"\tcapping file with length {len(best_column)} to {column_max_length}")
-    
+
         group_progress.append(best_column[0:column_max_length])
 
         count += 1
@@ -75,15 +74,15 @@ def get_group_metrics(
         row_min = np.min(row)
         row_avg = np.mean(row)
         row_max = np.max(row)
-        print(f"row[{i}] shape is: {row.shape}, min: {row_min}, avg: {row_avg}, max: {row_max}")
+        print(
+            f"row[{i}] shape is: {row.shape}, min: {row_min}, avg: {row_avg}, max: {row_max}"
+        )
 
         min_list.append(row_min)
         avg_list.append(row_avg)
         max_list.append(row_max)
 
     return (min_list, avg_list, max_list)
-
-
 
 
 if __name__ == "__main__":
@@ -123,7 +122,6 @@ if __name__ == "__main__":
         help="""How many rows to use for each column in generating the progress plots.""",
     )
 
-
     p.add_argument(
         "--logging_level",
         type=str,
@@ -159,43 +157,45 @@ if __name__ == "__main__":
             group_avgs[group] = avg_list
             group_maxs[group] = max_list
 
-
         fig, ax = plt.subplots(1)
 
         y_min = None
         y_max = None
         xs = range(0, args.column_max_length)
-        colors = mpl.color_sequences['Accent']
+        colors = mpl.color_sequences["Accent"]
 
-        title = 'Search Progress';
+        title = "Search Progress"
         position = 0
         for group in args.groups:
             ax.plot(xs, group_avgs[group], lw=2, label=group, color=colors[position])
-            ax.fill_between(xs, group_mins[group], group_maxs[group], facecolor=colors[position], alpha=0.25)
+            ax.fill_between(
+                xs,
+                group_mins[group],
+                group_maxs[group],
+                facecolor=colors[position],
+                alpha=0.25,
+            )
             position += 1
 
         ax.relim()
-        if y_max != None and y_min != None:
-            plt.ylim(ymax = y_max, ymin = y_min)
+        if y_max is not None and y_min is not None:
+            plt.ylim(ymax=y_max, ymin=y_min)
 
-        if y_min != None:
-            plt.ylim(ymin = y_min)
-
+        if y_min is not None:
+            plt.ylim(ymin=y_min)
 
         ax.set_title(title)
-        legend_loc = 'upper right'
-        ax.legend(loc = legend_loc)
-        ax.set_xlabel('Genomes Evaluated')
-        ax.set_ylabel('Validation Loss')
+        legend_loc = "upper right"
+        ax.legend(loc=legend_loc)
+        ax.set_xlabel("Genomes Evaluated")
+        ax.set_ylabel("Validation Loss")
         ax.grid()
 
         plt.show()
 
-        '''
+        """
         plt.savefig(filename)
         plt.clf()
         plt.cla()
         plt.close()
-        '''
-
-
+        """

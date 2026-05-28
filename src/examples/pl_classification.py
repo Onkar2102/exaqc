@@ -261,6 +261,14 @@ if __name__ == "__main__":
         required=True,
     )
 
+    p.add_argument(
+        "--parent_strategy",
+        "-ps",
+        type=str,
+        nargs="+",
+        required=True,
+    )
+
     subparsers = p.add_subparsers(
         dest="population_strategy",
         help="Specify how genomes will be handled.",
@@ -397,6 +405,7 @@ if __name__ == "__main__":
         objective=objective,
         hyperparameters=hyperparameters,
         mutation_strategy=args.mutation_strategy,
+        parent_strategy=args.parent_strategy,
         run_for=args.number_genomes,
         input_registers={"input": min(args.input_qubits, objective.input_size)},
         output_registers={"input": math.ceil(math.log(objective.n_classes, 2))},
