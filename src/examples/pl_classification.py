@@ -288,6 +288,7 @@ if __name__ == "__main__":
     islands_parser.add_argument("--genomes_before_extinction", type=int, default=100)
     islands_parser.add_argument("--genomes_for_next_extinction", type=int, default=200)
     islands_parser.add_argument("--islands_to_extinct", type=int, default=2)
+    islands_parser.add_argument("--primary_parent", type=str, default="best")
     islands_parser.add_argument(
         "--intra_island_crossover_rate", type=float, default=0.5
     )
@@ -395,6 +396,7 @@ if __name__ == "__main__":
             genomes_before_extinction=args.genomes_before_extinction,
             genomes_for_next_extinction=args.genomes_for_next_extinction,
             islands_to_extinct=args.islands_to_extinct,
+            primary_parent=args.primary_parent,
             compare=compare,
             out_dir=args.out_dir,
         )
