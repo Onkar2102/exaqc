@@ -5,6 +5,7 @@ import torch
 from src.circuits.circuit import CircuitGenome
 from src.circuits.registers import expand_registers
 from src.circuits.pennylane_gate_specifications import pennylane_gate_specifications
+from src.circuits.encoder import initialize_encoder
 
 
 @pytest.mark.parametrize("gate_method_name", list(pennylane_gate_specifications.keys()))
@@ -36,6 +37,14 @@ def test_gate_creation_pennylane(gate_method_name: str):
         input_qubits=expand_registers({"test": n_qubits}),
         target="pennylane",
     )
+
+    # set up default hyperparameters for output generation
+    qc.hyperparameters = {
+        "quantum_output_mode" : "probs"
+    }
+
+    # create a basic encoder
+    qc.encoder = initialize_encoder(target="pennylane", encoding_str="amplitude", n_features=n_qubits, n_qubits=n_qubits)
 
     # Build qubit tuples (always 0..n_qubits-1 for the register)
     qc_qubits = [("test", i) for i in range(n_qubits)]

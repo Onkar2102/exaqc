@@ -2,10 +2,13 @@ import pytest
 import torch
 
 from src.circuits.circuit import CircuitGenome
+from src.circuits.encoder import initialize_encoder
+from src.circuits.decoder import initialize_decoder
 from src.circuits.registers import expand_registers
 
 
-def test_pennylane_example_circuit_full_stack():
+@pytest.mark.parametrize("target", ["qiskit", "pennylane"])
+def test_example_circuit_full_stack(target: str):
     """
     Integration test:
     Build a non-trivial circuit using CircuitGenome and ensure
@@ -14,8 +17,24 @@ def test_pennylane_example_circuit_full_stack():
     qc = CircuitGenome(
         genome_number=1,
         input_qubits=expand_registers({"a": 3, "b": 5}),
-        target="pennylane",
+        target=target,
     )
+
+    qc.hyperparameters = {
+        "steps": 30,
+        "learning_rate": 0.005,
+        "log_every": 15,
+        "batch_size": 12,
+        "quantum_output_mode": "probs",
+    }
+
+    # create a linear encoder which also needs to serialized weights
+    n_qubits = len(qc.input_indexes)
+    qc.encoder = initialize_encoder(target=target, encoding_str="linear_u3", n_features=n_qubits, n_qubits=n_qubits)
+
+    # create a linear decoder which also needs to serialized weights
+    qc.decoder = initialize_decoder(target=target, decoding_str="linear", n_inputs=2**n_qubits, n_outputs=n_qubits)
+
 
     qc.add_gate(depth=0.05, method_name="x", qubits=[("a", 1)])
     qc.add_gate(depth=0.10, method_name="x", qubits=[("b", 1)])
