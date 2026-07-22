@@ -86,7 +86,11 @@ class SupervisedTrainer:
             # x - inputs
             # y - targets
             # z - predictions
+            n_batches = len(dataloader)
+            batch = 0
             for x_batch, y_batch in dataloader:
+                print(f"batch: {batch} / {n_batches}")
+                batch += 1
                 batch_sum = Tensor([0])
 
                 for x, y in zip(x_batch, y_batch):
@@ -103,6 +107,9 @@ class SupervisedTrainer:
                 with torch.no_grad():
                     loss_sum += batch_sum
 
+                print(f"genome params:")
+                print(genome.torch_model.state_dict())
+
                 if is_training:
                     batch_sum.backward()
 
@@ -118,8 +125,6 @@ class SupervisedTrainer:
             metric_results["epoch"] = epoch
 
         return metric_results
-
-    
 
     def train(
         self,
@@ -184,13 +189,12 @@ class SupervisedTrainer:
         best_parameters = {}
         improvement_cutoff = 2
 
-        # for epoch in range(epochs):
-        while True:
+        for epoch in range(epochs):
+        # while True:
             training_metric_results = self.get_metrics(genome, dataloader=self.training_dataloader, loss_function=self.training_loss_function, optimizer=optimizer, epoch=epoch)
             logger.info(f"[epoch {epoch}] training metrics were: {training_metric_results}")
             genome.metadata["training_epoch_metrics"].append(training_metric_results)
 
-            '''
             print(f"parameters after training epoch: {parameter_list}")
 
             print()
@@ -205,7 +209,6 @@ class SupervisedTrainer:
             print("state dict:")
             print(optimizer.state_dict)
             print()
-            '''
 
             # calculate the metrics on the validation data
             validation_metric_results = self.get_metrics(genome, dataloader=self.validation_dataloader, loss_function=self.validation_loss_function, epoch=epoch)
@@ -234,7 +237,12 @@ class SupervisedTrainer:
                             coder_tensors.append(tensor.detach().clone())
                         best_parameters[key] = coder_tensors
 
+                    elif key == "qiskit_parameters":
+                        print(f"qiskit_parameters are: {value}")
+
+
                     else:
+                        # these would be pennylane parameters
                         best_parameters[key] = value.item()
             elif (epoch - best_epoch) > improvement_cutoff:
                 logger.info(f"stopping training on epoch {epoch} as last best epoch was {best_epoch} and no improvement found in {improvement_cutoff} epochs.")

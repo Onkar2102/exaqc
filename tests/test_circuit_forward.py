@@ -25,12 +25,13 @@ def test_example_circuit_full_stack(target: str):
         "learning_rate": 0.005,
         "log_every": 15,
         "batch_size": 12,
+        "quantum_input_mode": "u3",
         "quantum_output_mode": "probs",
     }
 
     # create a linear encoder which also needs to serialized weights
     n_qubits = len(qc.input_indexes)
-    qc.encoder = initialize_encoder(target=target, encoding_str="linear_u3", n_features=n_qubits, n_qubits=n_qubits)
+    qc.encoder = initialize_encoder(target=target, encoding_str="linear", n_inputs=n_qubits, n_outputs=n_qubits*3)
 
     # create a linear decoder which also needs to serialized weights
     qc.decoder = initialize_decoder(target=target, decoding_str="linear", n_inputs=2**n_qubits, n_outputs=n_qubits)
@@ -69,26 +70,25 @@ def test_example_circuit_full_stack(target: str):
         for name, value in gate.parameters.items()
     }
 
-    # ---- Generate PennyLane circuit ----
+    # ---- Generate circuit ----
     try:
-        dev, qnode_fn = qc.generate_pennylane_circuit(
-            measure_registers=False, return_probs=False
-        )
-    except Exception as e:
-        pytest.fail(f"Failed to generate PennyLane circuit: {e}")
+        qc.initialize_model()
 
-    # ---- Execute ----
-    try:
-        state = qnode_fn(input_bits, torch_params)
     except Exception as e:
-        pytest.fail(f"Execution failed: {e}")
+        pytest.fail(f"Failed to initialize quantum circuit model for target {target}: {e}")
+
+    # ---- Perform forward pass through circuit----
+    output = None
+    try:
+        output = qc.forward(input_bits)
+    except Exception as e:
+        pytest.fail(f"Forward pass on quantum circuit for target {target} failed: {e}")
 
     # ---- Basic sanity checks ----
-    assert state is not None, "Returned state is None"
-    assert hasattr(state, "shape"), "Returned object has no shape (not a state vector?)"
+    assert output is not None, "Returned output tensor is None"
+    assert hasattr(output, "shape"), "Returned object has no shape (not a state vector?)"
     assert (
-        state.shape[0] == 2**8
-    ), f"Expected statevector of size 256, got {state.shape}"
+        len(output) == n_qubits
+    ), f"Expected output tensor of size {n_qubits}, got tensor of shape {output.shape}"
 
-    print("\n✅ PennyLane example circuit executed successfully")
-    print(f"State shape: {state.shape}")
+    print("\n✅ {target} example circuit executed successfully")

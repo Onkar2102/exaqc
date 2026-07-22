@@ -7,10 +7,10 @@ import torch
 
 from abc import ABC, abstractmethod
 
-ENCODING_OPTIONS = ["basis", "rx_angle", "ry_angle", "rz_angle", "amplitude", "linear_u3"]
+ENCODING_OPTIONS = ["identity", "linear"]
 
 
-def initialize_encoder(target: str, encoding_str: str, n_features: int, n_qubits: int) -> Encoder:
+def initialize_encoder(target: str, encoding_str: str, n_inputs: int, n_outputs: int) -> Encoder:
     """
     Given the target system (e.g., pennylane or qiskit) create a
     new encoder to perform encodings from classical to quantum 
@@ -20,53 +20,35 @@ def initialize_encoder(target: str, encoding_str: str, n_features: int, n_qubits
         target: the target system (pennylane or qiskit)
         encoding_str: a string representation of the encoder
             to be created
-        n_features: how many classical input features will be used.
-        n_qubits: how many qubits will be used as inputs for the
-            quantum circuit.
+        n_inputs: how many classical input features will be used.
+        n_outputs: how many values in the output of the encoder, which
+            will be used as inputs for the quantum circuit.
     """
 
     encoder = None
 
-    if target == "pennylane":
-        if encoding_str == "basis":
-            encoder = PennylaneBasisEncoder(n_features, n_qubits)
+    if encoding_str == "linear":
+        encoder = LinearEncoder(n_inputs, n_outputs)
 
-        elif encoding_str == "rx_angle":
-            encoder = PennylaneRXAngleEncoder(n_features, n_qubits)
-
-        elif encoding_str == "ry_angle":
-            encoder = PennylaneRYAngleEncoder(n_features, n_qubits)
-
-        elif encoding_str == "rz_angle":
-            encoder = PennylaneRZAngleEncoder(n_features, n_qubits)
-
-        elif encoding_str == "amplitude":
-            encoder = PennylaneAmplitudeEncoder(n_features, n_qubits)
-
-        elif encoding_str == "linear_u3":
-            encoder = PennylaneLinearU3Encoder(n_features, n_qubits)
-
-        else:
-            raise ValueError(f"Unknown encoder={encoding_str} for target={target}")
     else:
-            raise ValueError(f"Unknown encoder={encoding_str} for target={target}")
+        raise ValueError(f"Unknown encoder={encoding_str} for target={target}")
 
     return encoder
 
 
 class Encoder(ABC):
-    def __init__(self, n_features: int, n_qubits: int):
+    def __init__(self, n_inputs: int, n_outputs: int):
         """
         Base constructor for a decoder, as each will need to know how many
         qubits it needs to decode to.
 
         Args:
-            n_features: how many classical input features will be used.
-            n_qubits: how many qubits will be used as inputs for the
-                quantum circuit.
+            n_inputs: how many classical input features will be used.
+            n_outputs: how many values in the output of the encoder, which
+                will be used as inputs for the quantum circuit.
         """
-        self.n_features = n_features
-        self.n_qubits = n_qubits
+        self.n_inputs = n_inputs
+        self.n_outputs = n_outputs
 
     @abstractmethod
     def __call__(self, inputs: torch.Tensor, genome: CircuitGenome):
@@ -96,8 +78,8 @@ class Encoder(ABC):
         response_dict = {
             "class": type(self).__name__,
             "args": {
-                "n_features": self.n_features,
-                "n_qubits": self.n_qubits,
+                "n_inputs": self.n_inputs,
+                "n_outputs": self.n_outputs,
             }
         }
 
@@ -167,40 +149,20 @@ class Encoder(ABC):
 
 
 
-class PennylaneBasisEncoder(Encoder):
+class IdentityEncoder(Encoder):
     def __call__(self, inputs: torch.Tensor, genome: CircuitGenome):
         """
-        Applies a basis embedding from the input values to the input
-        wires of the quantum circuit.
+        A default encoder for basis and angle encodings, which simply returns
+        the same inputs.
 
         Args:
-            inputs: the x (input) tensor for a sample. These need to be
-                binary values, and the number of qubits in the circuit
-                need to be equal to the number of binary values.
+            inputs: the x (input) tensor for a sample, this will be the
+                same as the output. 
             genome: the circuit genome whose quantum circuit
                 inputs are being set
         """
-        qml.BasisState(inputs, wires=genome.input_indexes)
 
-    def copy(self) -> Encoder:
-        """
-        This encoder has no state so we don't need to do a copy.
-        """
-        return self
-
-class PennylaneRXAngleEncoder(Encoder):
-    def __call__(self, inputs: torch.Tensor, genome: CircuitGenome):
-        """
-        Applies an angle incoding from the input values to the input
-        wires of the quantum circuit with RX gates.
-
-        Args:
-            inputs: the x (input) tensor for a sample
-            genome: the circuit genome whose quantum circuit
-                inputs are being set
-        """
-        for i, w in enumerate(genome.input_indexes):
-            qml.RX(torch.pi * inputs[i], wires=w)
+        return inputs
 
     def copy(self) -> Encoder:
         """
@@ -209,97 +171,25 @@ class PennylaneRXAngleEncoder(Encoder):
         return self
 
 
-
-class PennylaneRYAngleEncoder(Encoder):
-    def __call__(self, inputs: torch.Tensor, genome: CircuitGenome):
-        """
-        Applies an angle incoding from the input values to the input
-        wires of the quantum circuit with RY gates.
-
-        Args:
-            inputs: the x (input) tensor for a sample
-            genome: the circuit genome whose quantum circuit
-                inputs are being set
-        """
-        for i, w in enumerate(genome.input_indexes):
-            qml.RY(torch.pi * inputs[i], wires=w)
-
-    def copy(self) -> Encoder:
-        """
-        This encoder has no state so we don't need to do a copy.
-        """
-        return self
-
-
-
-class PennylaneRZAngleEncoder(Encoder):
-    def __call__(self, inputs: torch.Tensor, genome: CircuitGenome):
-        """
-        Applies an angle incoding from the input values to the input
-        wires of the quantum circuit with RZ gates.
-
-        Args:
-            inputs: the x (input) tensor for a sample
-            genome: the circuit genome whose quantum circuit
-                inputs are being set
-        """
-        for i, w in enumerate(genome.input_indexes):
-            qml.RZ(torch.pi * inputs[i], wires=w)
-
-    def copy(self) -> Encoder:
-        """
-        This encoder has no state so we don't need to do a copy.
-        """
-        return self
-
-
-
-class PennylaneAmplitudeEncoder(Encoder):
-    def __call__(self, inputs: torch.Tensor, genome: CircuitGenome):
-        """
-        Applies an amplitude embedding from the input values to the input
-        wires of the quantum circuit.
-
-        Args:
-            inputs: the x (input) tensor for a sample
-            genome: the circuit genome whose quantum circuit
-                inputs are being set
-        """
-
-        # expects float tensor of length 2**len(in_wires)
-        qml.AmplitudeEmbedding(
-            features=inputs,
-            wires=genome.input_indexes,
-            normalize=True,
-            pad_with=0.0,
-        )
-
-    def copy(self) -> Encoder:
-        """
-        This encoder has no state so we don't need to do a copy.
-        """
-        return self
-
-
-class PennylaneLinearU3Encoder(Encoder, torch.nn.Module):
-    def __init__(self, n_features: int, n_qubits: int):
+class LinearEncoder(Encoder, torch.nn.Module):
+    def __init__(self, n_inputs: int, n_outputs: int):
         """
         Base constructor for a decoder, as each will need to know how many
         outputs it needs to decode to.
 
         Args:
-            n_features: how many classical input features will be used.
-            n_qubits: how many qubits will be used as inputs for the
-                quantum circuit.
+            n_inputs: how many classical input features will be used.
+            n_outputs: how many outputs from the linear encoder, which should
+                be the same as the number of qubits that will be used as inputs 
+                for the quantum circuit.
         """
         # initialize both superclasses
         torch.nn.Module.__init__(self)
-        Encoder.__init__(self, n_features, n_qubits)
+        Encoder.__init__(self, n_inputs, n_outputs)
 
-        print(f"creating linear U3 encoder with n_features: {n_features} and n_qubits: {n_qubits}")
+        print(f"creating linear encoder with n_inputs: {n_inputs} and n_outputs: {n_outputs}")
 
-        # each qubit will get 3 parameters from the outputs of the linear layer
-        self.layer = torch.nn.Linear(self.n_features, self.n_qubits * 3)
+        self.layer = torch.nn.Linear(self.n_inputs, self.n_outputs)
 
         # initalize the layer weights randomly
         torch.nn.init.xavier_uniform_(self.layer.weight)
@@ -325,11 +215,7 @@ class PennylaneLinearU3Encoder(Encoder, torch.nn.Module):
         # linear layer requires float32 values
         encoding = self.layer(inputs.float())
 
-        for i, w in enumerate(genome.input_indexes):
-            # every qubit gets 3 of the encoding values as U3 parameters 
-            start = i * 3
-            qml.U3(encoding[i], encoding[i+1], encoding[i+2], wires=w)
-
+        return encoding
 
     def copy(self) -> Encoder:
         """

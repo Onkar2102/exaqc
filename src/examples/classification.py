@@ -22,7 +22,8 @@ from src.evolution.steady_state_islands import SteadyStateIslands
 from src.evolution.steady_state_population import SteadyStatePopulation
 from src.evolution.objective import Objective
 from src.circuits.pennylane_gate_specifications import pennylane_gate_specifications
-from src.circuits.circuit import CircuitGenome
+from src.circuits.qiskit_gate_specifications import qiskit_gate_specifications
+from src.circuits.circuit import CircuitGenome, QUANTUM_INPUT_MODES, QUANTUM_OUTPUT_MODES
 from src.circuits.decoder import initialize_decoder, DECODING_OPTIONS
 from src.circuits.encoder import initialize_encoder, ENCODING_OPTIONS
 
@@ -30,7 +31,6 @@ from src.datasets.classification import ClassificationDataset
 
 from src.metrics.mean_class_accuracy import MeanClassAccuracy
 
-from src.utils.losses import LOSS_REGISTRY, ce_onehot_on_probs
 from src.trainer.supervised_trainer import SupervisedTrainer
 
 def get_dataloaders(
@@ -322,13 +322,34 @@ if __name__ == "__main__":
     p.add_argument("--epochs", type=int, default=30)
     p.add_argument("--learning_rate", "-lr", type=float, default=5e-4)
     p.add_argument("--number_genomes", type=int, default=2000)
-    p.add_argument("--input_qubits", type=int, default=6)
+    p.add_argument("--input_qubits", type=int)
+    p.add_argument("--output_qubits", type=int)
+
+    p.add_argument("--target", type=str, choices=["pennylane", "qiskit"])
+
+    p.add_argument(
+        "--quantum_input_mode",
+        "-qim",
+        choices=QUANTUM_INPUT_MODES,
+        type=str,
+        default="u3",
+        help="Choose initial gate types whose parameteres will be  set from classical inputs",
+    )
+
+    p.add_argument(
+        "--quantum_output_mode",
+        "-qom",
+        choices=QUANTUM_OUTPUT_MODES,
+        type=str,
+        default="probs",
+        help="Choose the output mode from the quantum circuit.",
+    )
 
     p.add_argument(
         "--encoding",
         choices=ENCODING_OPTIONS,
         type=str,
-        default="angle",
+        default="linear",
         help="Choose the kind of encoding",
     )
 
@@ -336,7 +357,7 @@ if __name__ == "__main__":
         "--decoding",
         choices=DECODING_OPTIONS,
         type=str,
-        default="clipped",
+        default="linear",
         help="Choose the kind of decoding",
     )
 
@@ -371,7 +392,8 @@ if __name__ == "__main__":
         "epochs": args.epochs,
         "learning_rate": args.learning_rate,
         "batch_size": args.batch_size,
-        "quantum_output_mode": "probs",
+        "quantum_input_mode": args.quantum_input_mode,
+        "quantum_output_mode": args.quantum_output_mode,
     }
 
     # set up the objective function
@@ -426,13 +448,24 @@ if __name__ == "__main__":
         metrics=metrics,
     )
 
-    target = "pennylane"
-    n_input_registers = min(args.input_qubits, training_dataloader.n_features)
-    #n_output_registers = math.ceil(math.log(training_dataloader.n_labels, 2))
-    n_output_registers = n_input_registers
+    target = args.target
 
-    initial_encoder = initialize_encoder(target=target, encoding_str=args.encoding, n_features=training_dataloader.n_features, n_qubits=n_input_registers)
-    initial_decoder = initialize_decoder(target=target, decoding_str=args.decoding, n_inputs=2**n_output_registers, n_outputs=training_dataloader.n_labels)
+    # TODO: Determining the number of inputs/outputs could probably
+    # be done in a nice wrapper function or something
+    n_input_registers = args.input_qubits
+    n_encoder_outputs = n_input_registers
+    if args.quantum_input_mode == "u3":
+        n_encoder_outputs *= 3
+
+    n_output_registers = args.output_qubits
+    n_decoder_inputs = n_output_registers
+
+    if args.quantum_output_mode == "probs":
+        n_decoder_inputs = 2**n_decoder_inputs
+        print(f"n_decoder_inputs (for probs): {n_decoder_inputs}, n_output_registers: {n_output_registers}")
+
+    initial_encoder = initialize_encoder(target=target, encoding_str=args.encoding, n_inputs=training_dataloader.n_features, n_outputs=n_encoder_outputs)
+    initial_decoder = initialize_decoder(target=target, decoding_str=args.decoding, n_inputs=n_decoder_inputs, n_outputs=training_dataloader.n_labels)
 
     population = None
     print(f"args.population_strategy: {args.population_strategy}")
@@ -456,8 +489,15 @@ if __name__ == "__main__":
             out_dir=args.out_dir,
         )
 
+    gate_specifications = None
+    if target == "pennylane":
+        gate_specifications = pennylane_gate_specifications
+    else:
+        gate_specifications = qiskit_gate_specifications
+
+
     master_worker(
-        gate_specifications=pennylane_gate_specifications,
+        gate_specifications=gate_specifications,
         population=population,
         objective=objective,
         initial_encoder=initial_encoder,
