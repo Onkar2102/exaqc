@@ -1,15 +1,91 @@
 import random
+import torch
 
 from loguru import logger
 
 from src.circuits.circuit import CircuitGenome
+from src.circuits.decoder import Decoder
+from src.circuits.encoder import Encoder
 from src.circuits.gate import Gate
+
+
+def torch_simplex_crossover(
+    modules: list[torch.nn.Module], r: float
+) -> torch.nn.Module:
+    """
+    Perform simplex crossover on a list of
+    Args:
+        modules: is the list of torch.nn.Modules from the encoders or decoders of the
+            crossover parents
+        r: is the randomized line search value to use from the crossover operation
+    """
+
+    primary = modules[0]
+    others = modules[1:]
+
+    child = primary.copy()
+
+    with torch.no_grad():
+        child_state_dict = child.state_dict()
+        for name in child_state_dict.keys():
+            primary_tensor = primary.state_dict()[name]
+
+            other_tensors = [other.state_dict()[name] for other in others]
+            # get the element wise mean of the other tensors
+            tensor_mean = torch.stack(other_tensors).mean(dim=0)
+
+            """
+            print(f"primary tensor: {primary_tensor}")
+            print(f"other tensors: {other_tensors}")
+            print(f"tensor_mean: {tensor_mean}")
+            print(f"r: {r}")
+            """
+
+            child_state_dict[name] = (
+                r * (tensor_mean - primary_tensor)
+            ) + primary_tensor
+
+            # print(f"child tensor: {child_state_dict[name]}")
+
+    return child
+
+
+def crossover_encoder_decoder(
+    parents: list[CircuitGenome], r: float
+) -> (Encoder, Decoder):
+    """
+    Do crossover on encoders or decoders which are torch modules with
+    parameters to also optimize.
+
+    Args:
+        parents: is the list of circuit genomes from the crossover operation
+        r: is the randomized line search value to use from the crossover operation
+    """
+
+    encoder = None
+    decoder = None
+
+    if isinstance(parents[0].encoder, torch.nn.Module):
+        encoders = [parent.encoder for parent in parents]
+        encoder = torch_simplex_crossover(encoders, r)
+    else:
+        encoder = parents[0].encoder.copy()
+
+    if isinstance(parents[0].decoder, torch.nn.Module):
+        decoders = [parent.decoder for parent in parents]
+        decoder = torch_simplex_crossover(decoders, r)
+    else:
+        decoder = parents[0].decoder.copy()
+
+    return encoder, decoder
 
 
 def exponential_crossover(
     child: CircuitGenome,
     p1: CircuitGenome,
     p2: CircuitGenome,
+    c1: float = -2.0,
+    c2: float = 0.5,
 ):
     """
     This recombines 2 parent genomes into a new child genome. A random depth is
@@ -46,6 +122,15 @@ def exponential_crossover(
     child.metadata["parent_genomes"] = [p1.genome_number, p2.genome_number]
     child.metadata["generated_by"] = ["exponential_crossover"]
 
+    # do crossover if encoder or decoders are torch modules with
+    # parameters to also optimize
+
+    # get the random value for the randomized simplex line search since
+    # the rest of exponential crossover does not use one
+    r = (random.uniform(0.0, 1.0) * (c2 - c1)) + c1
+
+    child.encoder, child.decoder = crossover_encoder_decoder([p1, p2], r)
+
     return child
 
 
@@ -55,7 +140,7 @@ def binary_crossover(
     p2: CircuitGenome,
     best_keep_rate: float = 0.75,
     other_keep_rate: float = 0.25,
-    c1: float = -1.0,
+    c1: float = -2.0,
     c2: float = 0.5,
 ):
     """
@@ -161,6 +246,8 @@ def binary_crossover(
     child.metadata["parent_genomes"] = [p1.genome_number, p2.genome_number]
     child.metadata["generated_by"] = ["binary_crossover"]
 
+    child.encoder, child.decoder = crossover_encoder_decoder([p1, p2], r)
+
     return child
 
 
@@ -169,7 +256,7 @@ def n_ary_crossover(
     parents: list[CircuitGenome],
     primary_keep_rate: float = 0.75,
     other_keep_rate: float = 0.25,
-    c1: float = -1.0,
+    c1: float = -2.0,
     c2: float = 0.5,
 ):
     """
@@ -330,5 +417,7 @@ def n_ary_crossover(
     child.metadata["generated_by"] = ["n_ary_crossover"]
 
     logger.debug(f"child genome has {len(child.gates)} gates: {child_gate_innovations}")
+
+    child.encoder, child.decoder = crossover_encoder_decoder(parents, r)
 
     return child

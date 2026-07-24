@@ -2,11 +2,13 @@ import json
 import pytest
 
 from src.circuits.circuit import CircuitGenome
+from src.circuits.decoder import initialize_decoder
+from src.circuits.encoder import initialize_encoder
 from src.circuits.registers import expand_registers
 
 
 @pytest.mark.parametrize("target", ["qiskit", "pennylane"])
-def test_all_disabled_pennylane(target: str):
+def test_all_disabled(target: str):
     """
     Creates a circuit genome with 3 gates which are all disabled.
     The mutation should return False.
@@ -31,7 +33,20 @@ def test_all_disabled_pennylane(target: str):
         "learning_rate": 0.005,
         "log_every": 15,
         "batch_size": 12,
+        "quantum_input_mode": "ry",
+        "quantum_output_mode": "probs",
     }
+
+    # create a linear encoder which also needs to serialized weights
+    n_qubits = len(qc.input_indexes)
+    qc.encoder = initialize_encoder(
+        target=target, encoding_str="linear", n_inputs=n_qubits, n_outputs=n_qubits
+    )
+
+    # create a linear decoder which also needs to serialized weights
+    qc.decoder = initialize_decoder(
+        target=target, decoding_str="linear", n_inputs=2**n_qubits, n_outputs=n_qubits
+    )
 
     # cswap is one control two target
     qc.add_gate(

@@ -15,6 +15,8 @@ dependencies = [
     "numpy<2",
     "qiskit-aer",
     "qiskit",
+    "qiskit_algorithms",
+    "qiskit_machine_learning",
     "pennylane",
     "pennylane-qiskit",
     "torch",

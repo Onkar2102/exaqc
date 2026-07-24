@@ -1,21 +1,28 @@
 from __future__ import annotations
-from loguru import logger
-from typing import Dict, Optional
+
 import bisect
 import os
 import json
-
 import matplotlib.pyplot as plt
-
-from qiskit import QuantumCircuit
-from qiskit import QuantumRegister, ClassicalRegister
 import pennylane as qml
 import torch
 
+from loguru import logger
+
+from torch import Tensor
+
+from qiskit import QuantumCircuit
+from qiskit import QuantumRegister, ClassicalRegister
+from qiskit.circuit import ParameterVector
+from qiskit_machine_learning.neural_networks import SamplerQNN
+from qiskit_machine_learning.connectors import TorchConnector
+
 from src.circuits.gate import Gate
-from src.objectives.genome_objectives import (
-    genome_to_torch_params,
-)
+from src.circuits.decoder import Decoder
+from src.circuits.encoder import Encoder
+
+QUANTUM_INPUT_MODES = ["u3", "rx", "ry", "rz", "basis", "amplitude"]
+QUANTUM_OUTPUT_MODES = ["probs", "expval", "state"]
 
 
 class CircuitGenome:
@@ -80,12 +87,60 @@ class CircuitGenome:
         self.gates: list[Gate] = []
 
         self.target = target
+        self.quantum_weight_key = (
+            "quantum_layer.weights"
+            if self.target == "pennylane"
+            else "quantum_layer.weight"
+        )
 
         # if a genome has not yet been evaluated, its fitness is None
         self.fitness = None
 
-        # the inherent circuit is set to None
-        self.circuit = None
+        # the torch parameters used for training  and the circuit for
+        # training are initially set to None and initialized if the
+        # genome is used for training or validation
+        self.torch_model = None
+        self.torch_parameters = None
+
+    def n_quantum_inputs(self) -> int:
+        """
+        Used to specify how many values the quantum circuit expects so
+        encoders can be properly generated.
+
+        Return:
+            The number of inputs (the expected tensor size) for the quantum
+            circuit specified by this genome.
+        """
+
+        input_mode = self.hyperparameters["quantum_input_mode"]
+
+        if input_mode == "u3":
+            return len(self.input_indexes) * 3
+        elif input_mode in ["rx", "ry", "rz"]:
+            return len(self.input_indexes)
+        else:
+            raise ValueError(f"unknown quantum_input_mode={input_mode}")
+
+    def n_quantum_outputs(self) -> int:
+        """
+        Used to specify how many values the quantum circuit will return
+        so decoders can be properly generated.
+
+        Return:
+            The number of outputs (the expected tensor size) for the quantum
+            circuit specified by this genome.
+        """
+
+        output_mode = self.hyperparameters["quantum_output_mode"]
+
+        if output_mode == "probs":
+            return 2 ** len(self.output_indexes)
+
+        elif output_mode == "expval":
+            return len(self.output_indexes)
+
+        else:
+            raise ValueError(f"unknown quantum_output_mode={output_mode}")
 
     def is_valid(self) -> bool:
         """
@@ -227,6 +282,9 @@ class CircuitGenome:
         serialized["hyperparameters"] = self.hyperparameters.copy()
         serialized["gates"] = []
 
+        serialized["encoder"] = self.encoder.to_dict()
+        serialized["decoder"] = self.decoder.to_dict()
+
         for gate in self.gates:
             serialized["gates"].append(gate.to_dict())
 
@@ -251,6 +309,9 @@ class CircuitGenome:
         )
         new_genome.fitness = serialized["fitness"]
         new_genome.hyperparameters = serialized["hyperparameters"]
+
+        new_genome.encoder = Encoder.from_dict(serialized["encoder"])
+        new_genome.decoder = Decoder.from_dict(serialized["decoder"])
 
         for serialized_gate in serialized["gates"]:
             gate = Gate.from_dict(serialized_gate)
@@ -400,57 +461,172 @@ class CircuitGenome:
 
         return sorted(possible_output_indexes)
 
-    def generate_qiskit_circuit(self) -> QuantumCircuit:
+    def get_parameters_as_list(self) -> list[float]:
         """
-        Converts this genome into a useable qiskit instationation.
+        This is used to get the all the gate parameters as a list (in order
+        of the sorted gates) so that they can be tracked by the qiskit
+        and pennylane models.
 
         Returns:
-            A qiskit QuantumCircuit instantiation of this circuit genome.
+            All the parameter values in this quantum circuit as a list of
+            float values.
         """
-        quantum_registers = []
-        classical_registers = []
-        register_dict = {}
-        for qubit_name, qubit_index in self.qubits:
-            quantum_register = QuantumRegister(1, name=f"{qubit_name}-{qubit_index}")
-            quantum_registers.append(quantum_register)
-            register_dict[(qubit_name, qubit_index)] = quantum_register
+        parameter_list = []
 
-        for qubit_name, qubit_index in self.output_qubits:
-            classical_registers.append(ClassicalRegister(1))
-
-        circuit = QuantumCircuit(*quantum_registers, *classical_registers)
-
-        # make sure we apply the gates in the correct ordering by depth
-        self.sort_gates()
         for gate in self.gates:
-            gate.add_to_qiskit_circuit(register_dict, circuit)
+            # set each gate and its parameters using the weight vector
+            for parameter_name, value in gate.parameters.items():
+                parameter_list.append(value)
 
-        for output_index, input_index in enumerate(self.output_indexes):
-            circuit.measure(
-                quantum_registers[input_index], classical_registers[output_index]
+        return parameter_list
+
+    def set_parameters_from_list(self, parameter_list: list[float | Tensor]):
+        """
+        This takes a list of parameters, in the same order as those generated
+        by the `get_parameters_as_list` method and sets the float values of
+        all the gate parameters from them.
+
+        Args:
+            parameter_list: is a list of floating point or tensor values which
+                will be used to set the gate parameter values.
+        """
+
+        offset = 0
+        for gate in self.gates:
+            # set each gate and its parameters using the weight vector
+            for parameter_name, value in gate.parameters.items():
+                gate.parameters[parameter_name] = parameter_list[offset]
+                offset += 1
+
+        return parameter_list
+
+    def set_parameters(self, state_dict: dict[str, Tensor]):
+        """
+        Sets the parameters of the circuit genome after a trainer has finished its
+        epochs over it. These should be set from the parameters from the best validation
+        loss, which will be floats (not Tensors).
+        """
+
+        with torch.no_grad():
+            # copy all tensors from the saved state dict to the current
+            # state dict (this will handle encoders/decoders)
+            current_state_dict = self.hybrid_model.state_dict()
+
+            for name, tensor in state_dict.items():
+                current_state_dict[name].copy_(tensor)
+
+            # get the quantum parameter list so we can use this to set
+            # the CircuitGenome gate parameters
+
+            # of course pennylane and qiskit use a slightly different name for weights
+            quantum_parameter_list = None
+            if self.target == "pennylane":
+                quantum_parameter_list = current_state_dict[
+                    "quantum_layer.weights"
+                ].tolist()
+            else:
+                quantum_parameter_list = current_state_dict[
+                    "quantum_layer.weight"
+                ].tolist()
+
+            # logger.debug(f"quantum parameter list: {quantum_parameter_list}")
+            self.set_parameters_from_list(quantum_parameter_list)
+
+    def initialize_model(self):
+        """
+        Will generate an appropriate pennylane or qiskit circuit for this
+        circuit genome, given specified hyperparameters (which should be
+        initialized with the genome). After this is completed, self.torch_model
+        should be set to the model, which can take a tensor of input and
+        calculate the outputs (which is wrapped in the forward method of
+        CircuitGenome).
+        """
+
+        if self.target == "pennylane":
+            self.generate_pennylane_circuit()
+        elif self.target == "qiskit":
+            self.generate_qiskit_circuit()
+        else:
+            raise ValueError(
+                f"Unknown target {self.target} for circuit genome model generation."
             )
 
-        self.circuit = circuit
+        n_quantum_inputs = self.n_quantum_inputs()
+        n_quantum_outputs = self.n_quantum_outputs()
 
-        return circuit
+        class HybridModel(torch.nn.Module):
+            def __init__(
+                self,
+                encoder: Encoder,
+                quantum_layer: TorchConnector | qml.qnn.TorchLayer,
+                decoder: Decoder,
+            ):
+                super().__init__()
+                self.encoder = encoder
+                self.quantum_layer = quantum_layer
+                # Classical post-processing layer: expands 4 quantum probabilities to 3 classes
+                self.decoder = decoder
+
+            def forward(self, x: Tensor):
+                x = self.encoder(x, self)
+                # make sure the encoder is properly specified
+                assert len(x) == n_quantum_inputs
+
+                x = self.quantum_layer(x)
+
+                # make sure the circuit outputs are properly specified
+                assert len(x) == n_quantum_outputs
+
+                x = self.decoder(x, self)
+
+                return x
+
+        self.hybrid_model = HybridModel(self.encoder, self.torch_model, self.decoder)
+
+        with torch.no_grad():
+            parameter_list = self.get_parameters_as_list()
+            # initialize the torch parameters
+            # and of course the weight name is different
+            if self.target == "pennylane":
+                self.hybrid_model.quantum_layer.weights.copy_(
+                    torch.tensor(parameter_list)
+                )
+            else:
+                self.hybrid_model.quantum_layer.weight.copy_(
+                    torch.tensor(parameter_list)
+                )
+
+    def forward(
+        self,
+        x: Tensor,
+    ) -> Tensor:
+        """
+        Does a forward pass through the `self.torch_model` model initialized
+        in the :meth:``initialize_model` method.
+
+        Args:
+            x: is the input sample batch to pass through the model
+            params:
+        """
+
+        logger.debug(
+            f"doing forward pass, encoder.n_inputs: {self.encoder.n_inputs}, encoder.n_outputs: "
+            f"{self.encoder.n_outputs}, quantum_inputs: {self.n_quantum_inputs()}, quantum_outputs: "
+            f"{self.n_quantum_outputs()}, decoder.n_inputs: {self.decoder.n_inputs}, decoder.n_outputs: "
+            f"{self.decoder.n_outputs}"
+        )
+
+        return self.hybrid_model(x)
 
     def generate_pennylane_circuit(
         self,
         device_name: str = "default.qubit",
-        measure_registers: bool = False,
-        shots: Optional[int] = None,
-        input_mode: str = "basis",
-        return_probs: bool = False,
     ):
         """
         Converts this genome into a PennyLane QNode-ready function.
 
         Args:
             device_name: Name of the PennyLane device to use.
-            measure_registers: If True, return measurement results for all wires (like Qiskit classical registers).
-            shots: Sample from circuit output,
-            input_mode: choose encoding paradigm "basis" or "angle"
-            return_probs: Return the actual probablity weights from the circuit
 
         Returns:
             A tuple (dev, qnode_fn), where `dev` is the PennyLane device and
@@ -467,68 +643,188 @@ class CircuitGenome:
         dev = qml.device(
             device_name,
             wires=self.total_qubits,
-            shots=shots,
         )
+
+        output_mode = self.hyperparameters["quantum_output_mode"]
+        logger.info(f"output mode is: {output_mode}")
 
         # Define the QNode function
         @qml.qnode(dev, interface="torch", diff_method="backprop")
         def qnode_fn(
-            input_bits: torch.Tensor,
-            params: Dict[str, torch.Tensor],
+            inputs: Tensor,
+            weights: Tensor,
         ):
 
-            # --- Input preparation ---
-            if input_mode == "basis":
-                # expects int tensor length == total_qubits
-                qml.BasisState(input_bits, wires=self.input_indexes)
+            # initialize the qubits given the specified input mode
+            input_mode = self.hyperparameters["quantum_input_mode"]
 
-            elif input_mode == "angle":
-                # expects float tensor on "input" register wires
-                # encode x_i in [0,1] -> RY(pi*x_i) (common, stable)
-
-                # logger.info(f"input_indexes length: {len(self.input_indexes)} -- {self.input_indexes}")
-                # logger.info(f"input_bits length: {len(input_bits)} -- {input_bits}")
-
+            if input_mode == "u3":
                 for i, w in enumerate(self.input_indexes):
-                    qml.RY(torch.pi * input_bits[i], wires=w)
+                    start = i * 3
+                    qml.U3(inputs[start], inputs[start + 1], inputs[start + 2], w)
+
+            elif input_mode == "rx":
+                for i, w in enumerate(self.input_indexes):
+                    qml.RX(inputs[i], w)
+
+            elif input_mode == "ry":
+                for i, w in enumerate(self.input_indexes):
+                    qml.RY(inputs[i], w)
+
+            elif input_mode == "rz":
+                for i, w in enumerate(self.input_indexes):
+                    qml.RZ(inputs[i], w)
+
+            elif input_mode == "basis":
+                qml.BasisState(inputs, wires=self.input_indexes)
 
             elif input_mode == "amplitude":
-                # expects float tensor of length 2**len(in_wires)
                 qml.AmplitudeEmbedding(
-                    features=input_bits,
+                    features=inputs,
                     wires=self.input_indexes,
                     normalize=True,
                     pad_with=0.0,
                 )
+
             else:
-                raise ValueError(f"Unknown input_mode={input_mode}")
+                raise ValueError(f"Unknown quantum_input_mode={input_mode}")
 
             # Apply all gates in depth order
             self.sort_gates()
+            offset = 0
             for gate in self.gates:
-                gate.add_to_pennylane_circuit(self.qubits, params=params)
+                gate.add_to_pennylane_circuit(
+                    self.qubits, weights=weights, offset=offset
+                )
+                offset += len(gate.parameters)
 
-            # 4️⃣ Measurement
-            if return_probs:
+            if output_mode == "probs":
                 return qml.probs(wires=self.output_indexes)
-            elif measure_registers:
-                # fallback if you want expvals
+
+            elif output_mode == "expval":
                 expvals = [
                     qml.expval(qml.PauliZ(w))
                     for w in self.output_indexes  # self.register_map["output"]
                 ]
                 return expvals
 
-            return qml.state()
+            elif output_mode == "state":
+                return qml.state()
 
-        self.circuit = qnode_fn
+            else:
+                raise ValueError(f"Unknown quantum_output_mode={output_mode}")
 
-        # 🔹 PRINT ONCE HERE
+        # set up the qiskit weights ParameterVector
+        parameter_list = self.get_parameters_as_list()
+
+        weight_shapes = {"weights": (len(parameter_list),)}
+
+        self.torch_model = qml.qnn.TorchLayer(qnode_fn, weight_shapes)
+
+    def generate_qiskit_circuit(self):
+        """
+        Converts this genome into a useable qiskit instationation.
+
+        Returns:
+            A qiskit QuantumCircuit instantiation of this circuit genome.
+        """
+        quantum_registers = []
+        register_dict = {}
+        for qubit_name, qubit_index in self.qubits:
+            quantum_register = QuantumRegister(1, name=f"{qubit_name}-{qubit_index}")
+            quantum_registers.append(quantum_register)
+            register_dict[(qubit_name, qubit_index)] = quantum_register
+
+        # unfortunately to get the correct number of output probs we need to use a
+        # single output classical register
+        classical_register = ClassicalRegister(len(self.output_qubits), name="c")
+        circuit = QuantumCircuit(*quantum_registers, classical_register)
+
+        # initialize the qubits given the specified input mode
+        input_mode = self.hyperparameters["quantum_input_mode"]
+        inputs = ParameterVector("x", length=self.n_quantum_inputs())
+
+        # keep a reference to the input ParameterVector so the circuit can be
+        # drawn with the inputs bound to concrete values (see save_circuit).
+        self.qiskit_input_vector = inputs
+
+        if input_mode == "u3":
+            for i, w in enumerate(self.input_indexes):
+                start = i * 3
+                circuit.u(inputs[start], inputs[start + 1], inputs[start + 2], w)
+
+        elif input_mode == "rx":
+            for i, w in enumerate(self.input_indexes):
+                circuit.rx(inputs[i], w)
+
+        elif input_mode == "ry":
+            for i, w in enumerate(self.input_indexes):
+                circuit.ry(inputs[i], w)
+
+        elif input_mode == "rz":
+            for i, w in enumerate(self.input_indexes):
+                circuit.rx(inputs[i], w)
+
+        else:
+            raise ValueError(f"Unknown quantum_input_mode={input_mode}")
+
+        # make sure we apply the gates in the correct ordering by depth
         self.sort_gates()
-        for gate in self.gates:
-            gate.describe_pennylane_circuit(self.qubits)
 
-        return dev, qnode_fn
+        # set up the qiskit weights ParameterVector
+        parameter_list = self.get_parameters_as_list()
+
+        # set up the weight vector used for tracking and training qiskit
+        # gate weights
+        self.weight_vector = ParameterVector("weights", length=len(parameter_list))
+
+        offset = 0
+        for gate in self.gates:
+            # set each gate and its parameters using the weight vector
+            gate.add_to_qiskit_circuit(
+                register_dict, circuit, self.weight_vector, offset
+            )
+            offset += len(gate.parameters)
+
+        for output_index, input_index in enumerate(self.output_indexes):
+            # print(f"measuring quantum_register[{input_index}] to classical_register[{output_index}]")
+            circuit.measure(
+                quantum_registers[input_index], classical_register[output_index]
+            )
+
+        # keep a reference to the assembled QuantumCircuit so it can be drawn
+        # (e.g. in save_circuit via circuit.draw()) without reaching into the
+        # QNN internals.
+        self.qiskit_circuit = circuit
+
+        # determine which type of QNN to utilize to get the appropriate
+        # outputs
+        output_mode = self.hyperparameters["quantum_output_mode"]
+
+        if output_mode == "probs":
+            # a hack to get the sampler to return the right number of qubits for the classical
+            # output registers
+            def identity_interpret(x: int) -> int:
+                return x
+
+            qnn = SamplerQNN(
+                circuit=circuit,
+                input_params=inputs,
+                weight_params=self.weight_vector,
+                input_gradients=True,
+                interpret=identity_interpret,
+                output_shape=2**circuit.num_clbits,
+            )
+
+            self.torch_model = TorchConnector(qnn)
+            # logger.debug(f"parameter_list: {parameter_list}")
+            # logger.debug(f"torch_model.weight: {self.torch_model.weight}")
+
+        elif output_mode == "expval":
+            self.torch_model = None
+
+        else:
+            raise ValueError(f"Unknown quantum_output_mode={output_mode}")
 
     def save_circuit(
         self,
@@ -563,18 +859,23 @@ class CircuitGenome:
                         f"{g.depth:.3f}  {g.method_name}  {g.qubits}  {g.parameters}\n"
                     )
 
-        # --- PennyLane draw ---
-        self.generate_pennylane_circuit(return_probs=True, input_mode="angle")
-        # logger.info(f"genome circuit: {self.circuit}")
-
-        test_metric = self.fitness.get("test_acc", None)
-        if test_metric is None:
-            test_metric = self.fitness.get("test_fidelity")
+        print("metadata:")
+        print(self.metadata)
 
         try:
+            training_loss = self.metadata["best_training_metrics"]["loss"]
+            training_accuracy = self.metadata["best_training_metrics"][
+                "mean_class_accuracy"
+            ]["mean"]
+
+            validation_loss = self.metadata["best_validation_metrics"]["loss"]
+            validation_accuracy = self.metadata["best_validation_metrics"][
+                "mean_class_accuracy"
+            ]["mean"]
+
             tag = (
-                f"trainloss_{self.fitness['train_loss']:.4f}_testloss_"
-                f"{self.fitness['test_loss']:.4f}_testacc_{test_metric:.3f}"
+                f"trainloss_{training_loss:.4f}_trainacc_{training_accuracy:.4f}_valloss_"
+                f"{validation_loss:.4f}_valacc_{validation_accuracy:.4f}"
             )
         except Exception:
             tag = (
@@ -582,11 +883,59 @@ class CircuitGenome:
                 f"eval_return_mean_{self.fitness['eval_return_mean']:.4f}"
             )
 
+        # --- draw the quantum circuit using this genome's target framework ---
+        # Both targets draw with the genome's trained gate parameters bound to
+        # concrete values and the circuit inputs set to zero.
         try:
-            params = genome_to_torch_params(self)
-            x0 = torch.zeros(len(self.input_indexes))
-            fig, ax = qml.draw_mpl(self.circuit)(x0, params)
-            ax.set_title(f"Genome {self.genome_number}")
+            trained_weights = self.get_parameters_as_list()
+
+            if self.target == "pennylane":
+                # Generate the PennyLane QNode if one is not already present
+                # (e.g. for a deserialized genome). self.torch_model is a
+                # qml.qnn.TorchLayer wrapping the QNode; draw the underlying
+                # QNode directly and pass the weights explicitly. Drawing the
+                # TorchLayer would make it ALSO inject its own `weights`
+                # argument, raising "got multiple values for argument
+                # 'weights'". The QNode's `inputs` argument is the quantum
+                # circuit input (post-encoder), so it is sized by
+                # n_quantum_inputs(), not the encoder's input size.
+                if self.torch_model is None:
+                    self.generate_pennylane_circuit()
+
+                weights = Tensor(trained_weights)
+                x0 = torch.zeros(self.n_quantum_inputs())
+                fig, ax = qml.draw_mpl(self.torch_model.qnode)(x0, weights)
+                ax.set_title(f"Genome {self.genome_number}")
+
+            elif self.target == "qiskit":
+                # Generate the qiskit circuit only if one is not already
+                # present. Regenerating an existing circuit is unsafe because
+                # each Gate caches its qiskit Parameters, so a second
+                # generation would build the circuit from the previous
+                # ParameterVector and no longer match self.weight_vector.
+                if getattr(self, "qiskit_circuit", None) is None:
+                    self.generate_qiskit_circuit()
+
+                # Bind the trained gate weights (and zero inputs) so the drawing
+                # shows concrete numbers rather than the symbolic "weights[i]" /
+                # "x[i]" ParameterVector entries.
+                bindings = {
+                    self.weight_vector[i]: float(value)
+                    for i, value in enumerate(trained_weights)
+                }
+                bindings.update(
+                    {parameter: 0.0 for parameter in self.qiskit_input_vector}
+                )
+
+                bound_circuit = self.qiskit_circuit.assign_parameters(bindings)
+                fig = bound_circuit.draw(output="mpl")
+                fig.suptitle(f"Genome {self.genome_number}")
+
+            else:
+                raise ValueError(
+                    f"Cannot draw circuit for unknown target {self.target}"
+                )
+
             path = os.path.join(
                 out_dir, f"{insert_type}_genome_{self.genome_number}_{tag}.png"
             )
