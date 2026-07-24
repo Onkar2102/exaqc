@@ -73,7 +73,7 @@ def test_gate_creation_pennylane(gate_method_name: str):
 
     # Generate PennyLane QNode
     try:
-        qc.generate_pennylane_circuit(measure_registers=False)
+        qc.initialize_model()
     except Exception as e:
         pytest.fail(f"Failed to generate PennyLane circuit for {gate_method_name}: {e}")
 

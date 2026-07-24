@@ -145,14 +145,15 @@ class SupervisedTrainer:
         learning_rate = hyperparameters["learning_rate"]
         epochs = hyperparameters["epochs"]
 
-        parameter_dict = genome.get_torch_parameters()
-
         # initalize the epoch metrics for tracking/data mining
         genome.metadata["training_epoch_metrics"] = []
         genome.metadata["validation_epoch_metrics"] = []
 
+        n_trainable_parameters = sum(p.numel() for p in genome.hybrid_model.parameters() if p.requires_grad)
 
-        if len(parameter_dict) == 0:
+        print(f"hybrid model n trainable parameters: {n_trainable_parameters}")
+
+        if n_trainable_parameters == 0:
             # this model has no parameters so it can't be trained. instead
             # just evaluate it on the validation data.
             logger.info("model had no parameters so only evaluating the model on the data.")
@@ -166,21 +167,11 @@ class SupervisedTrainer:
             validation_metric_results = self.get_metrics(genome, dataloader=self.validation_dataloader, loss_function=self.validation_loss_function)
             logger.info(f"validation metrics were: {validation_metric_results}")
             genome.metadata["best_validation_metrics"] = validation_metric_results
-
+            
             return
 
-        parameter_list = []
-        for key, value in parameter_dict.items():
-            # handle the encoder and decoder parameters if they have them, as these
-            # will be in a state_dict
-            if key in ["decoder_parameters", "encoder_parameters"]:
-                for tensor in value:
-                    parameter_list.append(tensor)
-            else:
-                parameter_list.append(value)
-
         optimizer = torch.optim.Adam(
-            parameter_list, lr=learning_rate, weight_decay=0.0
+            genome.hybrid_model.parameters(), lr=learning_rate, weight_decay=0.0
         )
 
         best_loss = math.inf
@@ -195,19 +186,8 @@ class SupervisedTrainer:
             logger.info(f"[epoch {epoch}] training metrics were: {training_metric_results}")
             genome.metadata["training_epoch_metrics"].append(training_metric_results)
 
-            print(f"parameters after training epoch: {parameter_list}")
-
-            print()
-            print("parameters:")
-            print(parameter_dict)
-            print()
-
-            print("best parameters:")
-            print(best_parameters)
-            print()
-
             print("state dict:")
-            print(optimizer.state_dict)
+            print(optimizer.state_dict())
             print()
 
             # calculate the metrics on the validation data
@@ -228,22 +208,11 @@ class SupervisedTrainer:
                 best_loss = avg_loss
                 best_epoch = epoch
 
-                for key, value in parameter_dict.items():
-                    # handle the encoder and decoder parameters if they have them, as these
-                    # will be in a state_dict
-                    if key in ["decoder_parameters", "encoder_parameters"]:
-                        coder_tensors = []
-                        for tensor in value:
-                            coder_tensors.append(tensor.detach().clone())
-                        best_parameters[key] = coder_tensors
+                # get a copy of the current state dict of the hybrid model, this will be
+                # all the weights
+                with torch.no_grad():
+                    best_parameters = { name : tensor.detach().clone() for name, tensor in genome.hybrid_model.state_dict().items() }
 
-                    elif key == "qiskit_parameters":
-                        print(f"qiskit_parameters are: {value}")
-
-
-                    else:
-                        # these would be pennylane parameters
-                        best_parameters[key] = value.item()
             elif (epoch - best_epoch) > improvement_cutoff:
                 logger.info(f"stopping training on epoch {epoch} as last best epoch was {best_epoch} and no improvement found in {improvement_cutoff} epochs.")
                 break

@@ -30,6 +30,9 @@ def initialize_encoder(target: str, encoding_str: str, n_inputs: int, n_outputs:
     if encoding_str == "linear":
         encoder = LinearEncoder(n_inputs, n_outputs)
 
+    elif encoding_str == "identity":
+        encoder = IdentityEncoder(n_inputs, n_outputs)
+
     else:
         raise ValueError(f"Unknown encoder={encoding_str} for target={target}")
 

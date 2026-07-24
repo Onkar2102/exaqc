@@ -86,7 +86,7 @@ def test_gate_creation(gate_method_name: str):
 
     try:
         print("generating qiskit circuit")
-        qc.generate_qiskit_circuit()
+        qc.initialize_model()
     except Exception as e:
         pytest.fail(f"Execution failed for gate {gate_method_name}: {e}")
 

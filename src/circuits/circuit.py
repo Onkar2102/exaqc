@@ -94,6 +94,7 @@ class CircuitGenome:
         self.gates: list[Gate] = []
 
         self.target = target
+        self.quantum_weight_key = "quantum_layer.weights" if self.target == "pennylane" else "quantum_layer.weight"
 
         # if a genome has not yet been evaluated, its fitness is None
         self.fitness = None
@@ -465,91 +466,73 @@ class CircuitGenome:
 
         return sorted(possible_output_indexes)
 
-    def get_torch_parameters(self, quantum_only: bool=False) -> dict[str, torch.nn.Parameter]:
-        """Extract trainable genome parameters into torch Parameters.
-
-        Iterates over enabled gates in the genome and converts each gate parameter
-        into a `torch.nn.Parameter`. Parameters are keyed using the stable identifier
-        `<innovation_number>:<parameter_name>`.
-
-        Args:
-            genome (CircuitGenome): Quantum circuit genome with parametric gates.
-            quantum_only: Return only the quantum circuit parameters (excluding the
-                ones from the encoder and decoder). This is used mostly for setting
-                up the QNN for qiskit.
+    def get_parameters_as_list(self) -> list[float]:
+        """
+        This is used to get the all the gate parameters as a list (in order
+        of the sorted gates) so that they can be tracked by the qiskit
+        and pennylane models.
 
         Returns:
-            dict[str, torch.nn.Parameter]: Mapping from parameter keys to torch Parameters.
+            All the parameter values in this quantum circuit as a list of
+            float values.
+        """
+        parameter_list = []
+
+        for gate in self.gates:
+            # set each gate and its parameters using the weight vector
+            for parameter_name, value in gate.parameters.items():
+                parameter_list.append(value)
+
+        return parameter_list
+
+    def set_parameters_from_list(self, parameter_list: list[float | Tensor]):
+        """
+        This takes a list of parameters, in the same order as those generated
+        by the `get_parameters_as_list` method and sets the float values of
+        all the gate parameters from them.
+
+        Args:
+            parameter_list: is a list of floating point or tensor values which
+                will be used to set the gate parameter values.
         """
 
-        if self.torch_parameters is None:
-            self.torch_parameters : dict[str, torch.nn.Parameter] = {}
+        offset = 0
+        for gate in self.gates:
+            # set each gate and its parameters using the weight vector
+            for parameter_name, value in gate.parameters.items():
+                gate.parameters[parameter_name] = parameter_list[offset]
+                offset += 1
 
-            if not quantum_only:
-                # if the decoder is a pytorch module then we need to also
-                # grab its parameters
-                if isinstance(self.decoder, torch.nn.Module):
-                    decoder_parameters = list(self.decoder.parameters())
-                    # logger.debug(f"decoder parameters are: {decoder_parameters}")
-                    self.torch_parameters["decoder_parameters"] = decoder_parameters
-
-                if isinstance(self.encoder, torch.nn.Module):
-                    encoder_parameters = list(self.encoder.parameters())
-                    # logger.debug(f"encoder parameters are: {encoder_parameters}")
-                    self.torch_parameters["encoder_parameters"] = encoder_parameters
+        return parameter_list
 
 
-            if self.target == "pennylane":
-                for gate in self.gates:
-                    if gate.enabled:
-                        for name, value in gate.parameters.items():
-                            key = f"{gate.innovation_number}:{name}"
-                            self.torch_parameters[key] = torch.nn.Parameter(
-                                torch.tensor(float(value), dtype=torch.float32)
-                            )
-            elif self.target == "qiskit":
-                self.torch_parameters["qiskit_parameters"] = self.torch_model.weight
-
-        return self.torch_parameters
-
-    def set_parameters(self, parameter_dict: dict[str, float]):
+    def set_parameters(self, state_dict: dict[str, Tensor]):
         """
         Sets the parameters of the circuit genome after a trainer has finished its
         epochs over it. These should be set from the parameters from the best validation
         loss, which will be floats (not Tensors).
         """
 
-        # the decoder is a pytorch module so we need to set its parameters
-        # as well
-        if isinstance(self.decoder, torch.nn.Module):
-            parameter_list = self.decoder.parameters()
-            new_parameter_list = parameter_dict["decoder_parameters"]
+        with torch.no_grad():
+            # copy all tensors from the saved state dict to the current
+            # state dict (this will handle encoders/decoders)
+            current_state_dict = self.hybrid_model.state_dict()
 
-            with torch.no_grad():
-                for old_tensor, new_tensor in zip(parameter_list, new_parameter_list):
-                    # logger.debug(f"copying new tensor {new_tensor} into old tensor: {old_tensor}")
-                    old_tensor.copy_(new_tensor)
-                    # logger.debug(f"old tensor now: {old_tensor}")
+            for name, tensor in state_dict.items():
+                current_state_dict[name].copy_(tensor)
 
-        if isinstance(self.encoder, torch.nn.Module):
-            parameter_list = self.encoder.parameters()
-            new_parameter_list = parameter_dict["encoder_parameters"]
+            # get the quantum parameter list so we can use this to set
+            # the CircuitGenome gate parameters
 
-            with torch.no_grad():
-                for old_tensor, new_tensor in zip(parameter_list, new_parameter_list):
-                    # logger.debug(f"copying new tensor {new_tensor} into old tensor: {old_tensor}")
-                    old_tensor.copy_(new_tensor)
-                    # logger.debug(f"old tensor now: {old_tensor}")
+            # of course pennylane and qiskit use a slightly different name for weights
+            quantum_parameter_list = None
+            if self.target == "pennylane":
+                quantum_parameter_list = current_state_dict["quantum_layer.weights"].tolist()
+            else:
+                quantum_parameter_list = current_state_dict["quantum_layer.weight"].tolist()
 
-        for gate in self.gates:
-            if gate.enabled:
-                for name in gate.parameters.keys():
-                    key = f"{gate.innovation_number}:{name}"
-                    if key in parameter_dict:
-                        gate.parameters[name] = parameter_dict[key]
-                    else:
-                        raise ValueError(f"missing parameter {key} when setting genome parameters")
-
+            print(f"quantum parameter list: {quantum_parameter_list}")
+            self.set_parameters_from_list(quantum_parameter_list)
 
     def initialize_model(self):
         """
@@ -561,7 +544,6 @@ class CircuitGenome:
         CircuitGenome).
         """
 
-
         if self.target == "pennylane":
             self.generate_pennylane_circuit()
         elif self.target == "qiskit":
@@ -572,8 +554,50 @@ class CircuitGenome:
             )
             exit(1)
 
-        # initialize the torch parameters
-        self.get_torch_parameters()
+        target = self.target
+        n_quantum_inputs = self.n_quantum_inputs()
+        n_quantum_outputs = self.n_quantum_outputs()
+
+        parameter_list = self.get_parameters_as_list()
+        torch_parameters = torch.Tensor(parameter_list)
+
+        class HybridModel(torch.nn.Module):
+            def __init__(self, encoder: Encoder, quantum_layer : TorchConnector | TorchLayer, decoder: Decoder):
+                super().__init__()
+                self.encoder = encoder
+                self.quantum_layer = quantum_layer
+                # Classical post-processing layer: expands 4 quantum probabilities to 3 classes
+                self.decoder = decoder
+
+            def forward(self, x: Tensor):
+                x = self.encoder(x, self)
+                # make sure the encoder is properly specified
+                assert len(x) == n_quantum_inputs
+
+                x = self.quantum_layer(x)
+
+                # make sure the circuit outputs are properly specified
+                assert len(x) == n_quantum_outputs
+
+                x = self.decoder(x, self)
+
+                return x
+
+        self.hybrid_model = HybridModel(self.encoder, self.torch_model, self.decoder)
+
+
+        with torch.no_grad():
+            # initialize the torch parameters
+            # and of course the weight name is different
+            if self.target == "pennylane":
+                print(f"hybrid_model.quantum_layer.weights (before copy): {self.hybrid_model.quantum_layer.weights}")
+                self.hybrid_model.quantum_layer.weights.copy_(torch.tensor(parameter_list))
+                print(f"hybrid_model.quantum_layer.weight (after copy): {self.hybrid_model.quantum_layer.weights}")
+
+            else:
+                print(f"hybrid_model.quantum_layer.weight (before copy): {self.hybrid_model.quantum_layer.weight}")
+                self.hybrid_model.quantum_layer.weight.copy_(torch.tensor(parameter_list))
+                print(f"hybrid_model.quantum_layer.weight (after copy): {self.hybrid_model.quantum_layer.weight}")
 
     def forward(self,
         x: Tensor,
@@ -587,23 +611,10 @@ class CircuitGenome:
             params: 
         """
 
-        # print(f"doing forward pass, encoder.n_inputs: {self.encoder.n_inputs}, encoder.n_outputs: {self.encoder.n_outputs}, quantum_inputs: {self.n_quantum_inputs()}, quantum_outputs: {self.n_quantum_outputs()}, decoder.n_inputs: {self.decoder.n_inputs}, decoder.n_outputs: {self.decoder.n_outputs}")
+        print(f"doing forward pass, encoder.n_inputs: {self.encoder.n_inputs}, encoder.n_outputs: {self.encoder.n_outputs}, quantum_inputs: {self.n_quantum_inputs()}, quantum_outputs: {self.n_quantum_outputs()}, decoder.n_inputs: {self.decoder.n_inputs}, decoder.n_outputs: {self.decoder.n_outputs}")
 
-        x = self.encoder(x, self)
-        # make sure the encoder is properly specified
-        assert len(x) == self.n_quantum_inputs()
 
-        if self.target == "pennylane":
-            x = self.torch_model(x, self.torch_parameters)
-        elif self.target == "qiskit":
-            x = self.torch_model(x)
-
-        # make sure the circuit outputs are properly specified
-        assert len(x) == self.n_quantum_outputs()
-
-        x = self.decoder(x, self)
-
-        return x
+        return self.hybrid_model(x)
 
 
     def generate_pennylane_circuit(
@@ -647,7 +658,7 @@ class CircuitGenome:
         @qml.qnode(dev, interface="torch", diff_method="backprop")
         def qnode_fn(
             inputs: torch.Tensor,
-            params: dict[str, torch.Tensor],
+            weights: torch.Tensor,
         ):
 
             # initialize the qubits given the specified input mode
@@ -686,8 +697,10 @@ class CircuitGenome:
 
             # Apply all gates in depth order
             self.sort_gates()
+            offset = 0
             for gate in self.gates:
-                gate.add_to_pennylane_circuit(self.qubits, params=params)
+                gate.add_to_pennylane_circuit(self.qubits, weights=weights, offset=offset)
+                offset += len(gate.parameters)
 
             if output_mode == "probs":
                 return qml.probs(wires=self.output_indexes)
@@ -705,7 +718,12 @@ class CircuitGenome:
             else:
                 raise ValueError(f"Unknown quantum_output_mode={quantum_output_mode}")
 
-        self.torch_model = qnode_fn
+        # set up the qiskit weights ParameterVector
+        parameter_list = self.get_parameters_as_list()
+
+        weight_shapes = { "weights": (len(parameter_list),) }
+
+        self.torch_model = qml.qnn.TorchLayer(qnode_fn, weight_shapes)
 
 
     def generate_qiskit_circuit(self):
@@ -762,20 +780,18 @@ class CircuitGenome:
         self.sort_gates()
 
         # set up the qiskit weights ParameterVector
-        n_parameters = 0
-        for gate in self.gates:
-            n_parameters += len(gate.parameters)
+        parameter_list = self.get_parameters_as_list()
 
         # set up the weight vector used for tracking and training qiskit
         # gate weights
-        self.weight_vector = ParameterVector("weights", length=n_parameters)
-        parameter_list = []
+        self.weight_vector = ParameterVector("weights", length=len(parameter_list))
 
         offset = 0
         for gate in self.gates:
             # set each gate and its parameters using the weight vector
-            gate.add_to_qiskit_circuit(register_dict, circuit, self.weight_vector, parameter_list, offset)
+            gate.add_to_qiskit_circuit(register_dict, circuit, self.weight_vector, offset)
             offset += len(gate.parameters)
+
 
         for output_index, input_index in enumerate(self.output_indexes):
             print(f"measuring quantum_register[{input_index}] to classical_register[{output_index}]")
@@ -817,9 +833,6 @@ class CircuitGenome:
             print(f"parameter_list: {parameter_list}")
             print(f"torch_model.weight: {self.torch_model.weight}")
 
-            with torch.no_grad():
-                self.torch_model.weight.copy_(torch.tensor(parameter_list))
-                print(f"torch_model.weight (after copy): {self.torch_model.weight}")
 
         elif output_mode == "expval":
             self.torch_model = None
