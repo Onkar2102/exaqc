@@ -89,7 +89,7 @@ class SupervisedTrainer:
             n_batches = len(dataloader)
             batch = 0
             for x_batch, y_batch in dataloader:
-                print(f"batch: {batch} / {n_batches}")
+                # logger.debug(f"batch: {batch} / {n_batches}")
                 batch += 1
                 batch_sum = Tensor([0])
 
@@ -107,8 +107,8 @@ class SupervisedTrainer:
                 with torch.no_grad():
                     loss_sum += batch_sum
 
-                print(f"genome params:")
-                print(genome.torch_model.state_dict())
+                # logger.debug(f"genome params:")
+                # logger.debug(genome.hybrid_model.state_dict())
 
                 if is_training:
                     batch_sum.backward()
@@ -151,7 +151,7 @@ class SupervisedTrainer:
 
         n_trainable_parameters = sum(p.numel() for p in genome.hybrid_model.parameters() if p.requires_grad)
 
-        print(f"hybrid model n trainable parameters: {n_trainable_parameters}")
+        logger.debug(f"hybrid model n trainable parameters: {n_trainable_parameters}")
 
         if n_trainable_parameters == 0:
             # this model has no parameters so it can't be trained. instead

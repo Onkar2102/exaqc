@@ -32,6 +32,14 @@ from src.circuits.registers import expand_registers
 #: level maps to the number of qubits used in a single "q" register.
 COMPLEXITY_LEVELS: tuple[str, ...] = ("minimal", "shallow", "deep")
 
+#: The ``"multi_param"`` level additionally exercises gates that carry more
+#: than one trainable parameter (the ``u`` / ``U3`` gate, three parameters).
+#: It is kept out of :data:`COMPLEXITY_LEVELS` so the broad training/gradient
+#: suites keep their existing single-parameter-gate coverage, and is opted
+#: into explicitly (e.g. by the parameter round-trip tests) where within-gate
+#: ordering matters.
+COMPLEXITY_LEVELS_WITH_MULTI_PARAM: tuple[str, ...] = COMPLEXITY_LEVELS + ("multi_param",)
+
 #: encoder_name/decoder_name combinations exercised across the test suite.
 #: "identity"/"clipped" have no trainable parameters of their own, while
 #: "linear"/"linear" are torch.nn.Module-backed and trainable.
@@ -44,6 +52,7 @@ _N_QUBITS_BY_COMPLEXITY: dict[str, int] = {
     "minimal": 1,
     "shallow": 2,
     "deep": 3,
+    "multi_param": 2,
 }
 
 
@@ -52,8 +61,17 @@ def _gate_specs(complexity: str, include_parametric: bool, target: str) -> list[
 
     Gate method names are restricted to ones supported by both the
     ``qiskit`` and ``pennylane`` gate specification tables (``h``, ``x``,
-    ``rx``, ``ry``, ``rz``, ``cx``) so the same specification can be used to
-    build genomes for either target.
+    ``rx``, ``ry``, ``rz``, ``cx``, and the multi-parameter ``u`` gate) so
+    the same specification can be used to build genomes for either target.
+
+    Note on the "multi_param" level: it includes ``u`` gates (the qiskit
+    ``u`` gate / pennylane ``U3`` gate), each carrying three trainable
+    parameters, so tests can exercise within-gate parameter ordering rather
+    than only cross-gate ordering. The third rotation parameter of this gate
+    is named ``"lam"`` in qiskit but ``"delta"`` in pennylane, so the
+    parameter dict is built target-aware (as is done for the single-qubit
+    ``rx`` rotation, which is ``"theta"`` in qiskit and ``"phi"`` in
+    pennylane).
 
     Note on the "deep" level: an ``h`` gate is deliberately placed
     immediately after the ``rz`` gate. ``rz`` (and other Z-diagonal
@@ -132,6 +150,41 @@ def _gate_specs(complexity: str, include_parametric: bool, target: str) -> list[
             specs.append(dict(depth=0.55, method_name="rz", qubits=[("q", 2)], parameters={"phi": 0.2}))
         specs.append(dict(depth=0.6, method_name="h", qubits=[("q", 2)], parameters={}))
         specs.append(dict(depth=0.7, method_name="x", qubits=[("q", 0)], parameters={}))
+        return specs
+
+    if complexity == "multi_param":
+        # rx's rotation parameter and the u gate's third parameter are named
+        # differently between the two targets (see the docstring).
+        rx_parameter = "theta" if target == "qiskit" else "phi"
+        u_third_parameter = "lam" if target == "qiskit" else "delta"
+
+        specs = [
+            dict(depth=0.2, method_name="h", qubits=[("q", 0)], parameters={}),
+        ]
+        if include_parametric:
+            # a single-parameter gate, then a three-parameter gate, so the
+            # flattened parameter list mixes gates of different arities
+            specs.append(dict(depth=0.3, method_name="rx", qubits=[("q", 0)], parameters={rx_parameter: 0.4}))
+            specs.append(
+                dict(
+                    depth=0.4,
+                    method_name="u",
+                    qubits=[("q", 0)],
+                    parameters={"theta": 0.1, "phi": 0.2, u_third_parameter: 0.3},
+                )
+            )
+        specs.append(dict(depth=0.5, method_name="cx", qubits=[("q", 0), ("q", 1)], parameters={}))
+        if include_parametric:
+            # a second three-parameter gate, on a different qubit, so
+            # cross-gate ordering of multi-parameter gates is exercised too
+            specs.append(
+                dict(
+                    depth=0.6,
+                    method_name="u",
+                    qubits=[("q", 1)],
+                    parameters={"theta": 0.5, "phi": 0.6, u_third_parameter: 0.7},
+                )
+            )
         return specs
 
     raise ValueError(f"Unknown complexity level: {complexity!r}")
@@ -411,3 +464,41 @@ def snapshot_gate_parameters(genome: CircuitGenome) -> dict[int, dict[str, float
     """
 
     return {gate.innovation_number: dict(gate.parameters) for gate in genome.gates if gate.enabled}
+
+
+def state_dict_with_quantum_weights(
+    genome: CircuitGenome, weights: list[float]
+) -> dict[str, torch.Tensor]:
+    """Builds a self-consistent hybrid-model state dict with given quantum weights.
+
+    ``CircuitGenome.set_parameters`` consumes a ``hybrid_model.state_dict()``
+    snapshot (the shape the trainer captures for the best epoch) and pushes
+    the quantum-layer weights back into ``gate.parameters``. To test that,
+    a caller needs a valid state dict whose quantum weights are known values.
+
+    Constructing one by hand is error-prone for the qiskit target, whose
+    ``TorchConnector`` exposes the *same* underlying weight tensor under two
+    state-dict keys (``quantum_layer.weight`` and ``quantum_layer._weights``)
+    that share storage. Setting only one leaves the snapshot internally
+    inconsistent. This helper avoids that by writing ``weights`` into the live
+    quantum-layer parameter (so every alias updates together) and then
+    snapshotting a detached clone of the whole state dict.
+
+    Requires ``genome.initialize_model()`` to have already been called.
+
+    Args:
+        genome: The initialized genome to build a state dict for.
+        weights: The quantum-layer weight values to embed, in
+            ``get_parameters_as_list`` order. Must match the number of
+            quantum gate parameters.
+
+    Returns:
+        A detached, cloned ``state_dict`` suitable to pass to
+        ``genome.set_parameters``.
+    """
+
+    with torch.no_grad():
+        weight_param = hybrid_named_parameters(genome)[genome.quantum_weight_key]
+        weight_param.copy_(torch.as_tensor(weights, dtype=weight_param.dtype))
+
+    return {name: tensor.detach().clone() for name, tensor in genome.hybrid_model.state_dict().items()}

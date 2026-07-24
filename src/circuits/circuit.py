@@ -531,7 +531,7 @@ class CircuitGenome:
             else:
                 quantum_parameter_list = current_state_dict["quantum_layer.weight"].tolist()
 
-            print(f"quantum parameter list: {quantum_parameter_list}")
+            # logger.debug(f"quantum parameter list: {quantum_parameter_list}")
             self.set_parameters_from_list(quantum_parameter_list)
 
     def initialize_model(self):
@@ -549,10 +549,7 @@ class CircuitGenome:
         elif self.target == "qiskit":
             self.generate_qiskit_circuit()
         else:
-            logger.fatal(
-                f"Unknown target {self.target} for circuit genome model generation."
-            )
-            exit(1)
+            raise ValueError(f"Unknown target {self.target} for circuit genome model generation.")
 
         target = self.target
         n_quantum_inputs = self.n_quantum_inputs()
@@ -590,14 +587,9 @@ class CircuitGenome:
             # initialize the torch parameters
             # and of course the weight name is different
             if self.target == "pennylane":
-                print(f"hybrid_model.quantum_layer.weights (before copy): {self.hybrid_model.quantum_layer.weights}")
                 self.hybrid_model.quantum_layer.weights.copy_(torch.tensor(parameter_list))
-                print(f"hybrid_model.quantum_layer.weight (after copy): {self.hybrid_model.quantum_layer.weights}")
-
             else:
-                print(f"hybrid_model.quantum_layer.weight (before copy): {self.hybrid_model.quantum_layer.weight}")
                 self.hybrid_model.quantum_layer.weight.copy_(torch.tensor(parameter_list))
-                print(f"hybrid_model.quantum_layer.weight (after copy): {self.hybrid_model.quantum_layer.weight}")
 
     def forward(self,
         x: Tensor,
@@ -611,7 +603,7 @@ class CircuitGenome:
             params: 
         """
 
-        print(f"doing forward pass, encoder.n_inputs: {self.encoder.n_inputs}, encoder.n_outputs: {self.encoder.n_outputs}, quantum_inputs: {self.n_quantum_inputs()}, quantum_outputs: {self.n_quantum_outputs()}, decoder.n_inputs: {self.decoder.n_inputs}, decoder.n_outputs: {self.decoder.n_outputs}")
+        # logger.debug(f"doing forward pass, encoder.n_inputs: {self.encoder.n_inputs}, encoder.n_outputs: {self.encoder.n_outputs}, quantum_inputs: {self.n_quantum_inputs()}, quantum_outputs: {self.n_quantum_outputs()}, decoder.n_inputs: {self.decoder.n_inputs}, decoder.n_outputs: {self.decoder.n_outputs}")
 
 
         return self.hybrid_model(x)
@@ -751,10 +743,13 @@ class CircuitGenome:
         circuit = QuantumCircuit(*quantum_registers, *classical_registers)
         '''
 
-
         # initialize the qubits given the specified input mode
         input_mode = self.hyperparameters["quantum_input_mode"]
         inputs = ParameterVector("x", length=self.n_quantum_inputs())
+
+        # keep a reference to the input ParameterVector so the circuit can be
+        # drawn with the inputs bound to concrete values (see save_circuit).
+        self.qiskit_input_vector = inputs
 
         if input_mode == "u3":
             for i, w in enumerate(self.input_indexes):
@@ -794,15 +789,15 @@ class CircuitGenome:
 
 
         for output_index, input_index in enumerate(self.output_indexes):
-            print(f"measuring quantum_register[{input_index}] to classical_register[{output_index}]")
+            # print(f"measuring quantum_register[{input_index}] to classical_register[{output_index}]")
             circuit.measure(
                 quantum_registers[input_index], classical_register[output_index]
             )
-            '''
-            circuit.measure(
-                quantum_registers[input_index], classical_registers[output_index]
-            )
-            '''
+
+        # keep a reference to the assembled QuantumCircuit so it can be drawn
+        # (e.g. in save_circuit via circuit.draw()) without reaching into the
+        # QNN internals.
+        self.qiskit_circuit = circuit
 
         # determine which type of QNN to utilize to get the appropriate
         # outputs
@@ -812,8 +807,6 @@ class CircuitGenome:
             pm = generate_preset_pass_manager(optimization_level=1)  # good default
             estimator = StatevectorEstimator()
             gradient = ParamShiftEstimatorGradient(estimator=estimator)
-
-            print(f"sampler num_clbits: {circuit.num_clbits}")
 
             # a hack to get the sampler to return the right number of qubits for the classical
             # output registers
@@ -830,8 +823,8 @@ class CircuitGenome:
             )
 
             self.torch_model = TorchConnector(qnn)
-            print(f"parameter_list: {parameter_list}")
-            print(f"torch_model.weight: {self.torch_model.weight}")
+            # logger.debug(f"parameter_list: {parameter_list}")
+            # logger.debug(f"torch_model.weight: {self.torch_model.weight}")
 
 
         elif output_mode == "expval":
@@ -874,9 +867,6 @@ class CircuitGenome:
                         f"{g.depth:.3f}  {g.method_name}  {g.qubits}  {g.parameters}\n"
                     )
 
-        # --- PennyLane draw ---
-        self.generate_pennylane_circuit(return_probs=True)
-
         print("metadata:")
         print(self.metadata)
 
@@ -897,11 +887,57 @@ class CircuitGenome:
                 f"eval_return_mean_{self.fitness['eval_return_mean']:.4f}"
             )
 
+        # --- draw the quantum circuit using this genome's target framework ---
+        # Both targets draw with the genome's trained gate parameters bound to
+        # concrete values and the circuit inputs set to zero.
         try:
-            params = genome_to_torch_params(self)
-            x0 = torch.zeros(self.encoder.n_inputs)
-            fig, ax = qml.draw_mpl(self.torch_model)(x0, params)
-            ax.set_title(f"Genome {self.genome_number}")
+            trained_weights = self.get_parameters_as_list()
+
+            if self.target == "pennylane":
+                # Generate the PennyLane QNode if one is not already present
+                # (e.g. for a deserialized genome). self.torch_model is a
+                # qml.qnn.TorchLayer wrapping the QNode; draw the underlying
+                # QNode directly and pass the weights explicitly. Drawing the
+                # TorchLayer would make it ALSO inject its own `weights`
+                # argument, raising "got multiple values for argument
+                # 'weights'". The QNode's `inputs` argument is the quantum
+                # circuit input (post-encoder), so it is sized by
+                # n_quantum_inputs(), not the encoder's input size.
+                if self.torch_model is None:
+                    self.generate_pennylane_circuit()
+
+                weights = torch.Tensor(trained_weights)
+                x0 = torch.zeros(self.n_quantum_inputs())
+                fig, ax = qml.draw_mpl(self.torch_model.qnode)(x0, weights)
+                ax.set_title(f"Genome {self.genome_number}")
+
+            elif self.target == "qiskit":
+                # Generate the qiskit circuit only if one is not already
+                # present. Regenerating an existing circuit is unsafe because
+                # each Gate caches its qiskit Parameters, so a second
+                # generation would build the circuit from the previous
+                # ParameterVector and no longer match self.weight_vector.
+                if getattr(self, "qiskit_circuit", None) is None:
+                    self.generate_qiskit_circuit()
+
+                # Bind the trained gate weights (and zero inputs) so the drawing
+                # shows concrete numbers rather than the symbolic "weights[i]" /
+                # "x[i]" ParameterVector entries.
+                bindings = {
+                    self.weight_vector[i]: float(value)
+                    for i, value in enumerate(trained_weights)
+                }
+                bindings.update({parameter: 0.0 for parameter in self.qiskit_input_vector})
+
+                bound_circuit = self.qiskit_circuit.assign_parameters(bindings)
+                fig = bound_circuit.draw(output="mpl")
+                fig.suptitle(f"Genome {self.genome_number}")
+
+            else:
+                raise ValueError(
+                    f"Cannot draw circuit for unknown target {self.target}"
+                )
+
             path = os.path.join(
                 out_dir, f"{insert_type}_genome_{self.genome_number}_{tag}.png"
             )
