@@ -186,9 +186,11 @@ class SupervisedTrainer:
             logger.info(f"[epoch {epoch}] training metrics were: {training_metric_results}")
             genome.metadata["training_epoch_metrics"].append(training_metric_results)
 
+            '''
             print("state dict:")
             print(optimizer.state_dict())
             print()
+            '''
 
             # calculate the metrics on the validation data
             validation_metric_results = self.get_metrics(genome, dataloader=self.validation_dataloader, loss_function=self.validation_loss_function, epoch=epoch)

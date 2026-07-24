@@ -6,6 +6,7 @@ import pennylane as qml
 import torch
 
 from abc import ABC, abstractmethod
+from loguru import logger
 
 ENCODING_OPTIONS = ["identity", "linear"]
 
@@ -190,7 +191,7 @@ class LinearEncoder(Encoder, torch.nn.Module):
         torch.nn.Module.__init__(self)
         Encoder.__init__(self, n_inputs, n_outputs)
 
-        print(f"creating linear encoder with n_inputs: {n_inputs} and n_outputs: {n_outputs}")
+        logger.debug(f"creating linear encoder with n_inputs: {n_inputs} and n_outputs: {n_outputs}")
 
         self.layer = torch.nn.Linear(self.n_inputs, self.n_outputs)
 

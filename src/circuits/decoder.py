@@ -5,6 +5,7 @@ import json
 import torch
 
 from abc import ABC, abstractmethod
+from loguru import logger
 
 DECODING_OPTIONS = ["clipped", "linear"]
 
@@ -195,7 +196,7 @@ class LinearDecoder(torch.nn.Module, Decoder):
         torch.nn.Module.__init__(self)
         Decoder.__init__(self, n_inputs, n_outputs)
 
-        print(f"creating decoder with n_inputs: {n_inputs} and n_outputs: {n_outputs}")
+        logger.debug(f"creating decoder with n_inputs: {n_inputs} and n_outputs: {n_outputs}")
 
         self.layer = torch.nn.Linear(self.n_inputs, self.n_outputs)
 

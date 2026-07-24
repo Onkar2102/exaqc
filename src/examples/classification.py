@@ -87,10 +87,10 @@ def get_dataloaders(
         stratify=y,
     )
     
-    print(f"x_train type: {x_train.dtype}")
-    print(f"x_validation type: {x_validation.dtype}")
-    print(f"y_train type: {y_train.dtype}")
-    print(f"y_validation type: {x_validation.dtype}")
+    logger.debug(f"x_train type: {x_train.dtype}")
+    logger.debug(f"x_validation type: {x_validation.dtype}")
+    logger.debug(f"y_train type: {y_train.dtype}")
+    logger.debug(f"y_validation type: {x_validation.dtype}")
 
     if normalize == "zscore":
         # be careful with zscore normalization so that we normalize the
@@ -126,7 +126,7 @@ def get_dataloaders(
         # give each sample its own weight (which will be the same across
         # a class/label)
         sample_weights = label_weights[training_dataset.y]
-        print(
+        logger.debug(
             f"training sample weights (len {len(sample_weights)} are: {sample_weights}"
         )
 
@@ -462,13 +462,11 @@ if __name__ == "__main__":
 
     if args.quantum_output_mode == "probs":
         n_decoder_inputs = 2**n_decoder_inputs
-        print(f"n_decoder_inputs (for probs): {n_decoder_inputs}, n_output_registers: {n_output_registers}")
 
     initial_encoder = initialize_encoder(target=target, encoding_str=args.encoding, n_inputs=training_dataloader.n_features, n_outputs=n_encoder_outputs)
     initial_decoder = initialize_decoder(target=target, decoding_str=args.decoding, n_inputs=n_decoder_inputs, n_outputs=training_dataloader.n_labels)
 
     population = None
-    print(f"args.population_strategy: {args.population_strategy}")
 
     if args.population_strategy == "steady_state":
         population = SteadyStatePopulation(
