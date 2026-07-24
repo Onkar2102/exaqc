@@ -6,7 +6,6 @@ from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.circuit import ParameterVector
 
 import pennylane as qml
-import torch
 
 from src.circuits.qiskit_gate_specifications import qiskit_gate_specifications
 from src.circuits.pennylane_gate_specifications import pennylane_gate_specifications
@@ -284,7 +283,7 @@ class Gate:
 
         param_values = weights[offset : offset + len(self.parameters)]
 
-        '''
+        """
         # Resolve parameters
         if params is not None:
             param_values = [
@@ -292,7 +291,7 @@ class Gate:
             ]
         else:
             param_values = list(self.parameters.values())
-        '''
+        """
 
         pennylane_op_name = getattr(spec, "pennylane_op", None)
 

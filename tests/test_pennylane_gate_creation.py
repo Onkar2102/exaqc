@@ -41,13 +41,20 @@ def test_gate_creation_pennylane(gate_method_name: str):
 
     # set up default hyperparameters for output generation
     qc.hyperparameters = {
-        "quantum_input_mode" : "ry",
-        "quantum_output_mode" : "probs",
+        "quantum_input_mode": "ry",
+        "quantum_output_mode": "probs",
     }
 
     # create a basic encoder and decoder
-    qc.encoder = initialize_encoder(target="pennylane", encoding_str="linear", n_inputs=n_qubits, n_outputs=n_qubits)
-    qc.decoder = initialize_decoder(target="pennylane", decoding_str="linear", n_inputs=2**n_qubits, n_outputs=n_qubits)
+    qc.encoder = initialize_encoder(
+        target="pennylane", encoding_str="linear", n_inputs=n_qubits, n_outputs=n_qubits
+    )
+    qc.decoder = initialize_decoder(
+        target="pennylane",
+        decoding_str="linear",
+        n_inputs=2**n_qubits,
+        n_outputs=n_qubits,
+    )
 
     # Build qubit tuples (always 0..n_qubits-1 for the register)
     qc_qubits = [("test", i) for i in range(n_qubits)]

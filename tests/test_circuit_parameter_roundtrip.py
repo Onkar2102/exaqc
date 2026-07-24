@@ -62,7 +62,9 @@ def _gate_parameter_values_in_order(genome: CircuitGenome) -> list[float]:
 
 @pytest.mark.parametrize("complexity", COMPLEXITY_LEVELS_WITH_MULTI_PARAM)
 @pytest.mark.parametrize("target", TARGETS)
-def test_get_parameters_as_list_matches_quantum_weight_after_init(target: str, complexity: str) -> None:
+def test_get_parameters_as_list_matches_quantum_weight_after_init(
+    target: str, complexity: str
+) -> None:
     """After ``initialize_model``, the parameter list equals the quantum weight tensor.
 
     ``initialize_model`` seeds the quantum layer by copying
@@ -99,7 +101,9 @@ def test_get_parameters_as_list_matches_quantum_weight_after_init(target: str, c
 
 @pytest.mark.parametrize("complexity", COMPLEXITY_LEVELS_WITH_MULTI_PARAM)
 @pytest.mark.parametrize("target", TARGETS)
-def test_set_parameters_writes_quantum_weights_back_in_order(target: str, complexity: str) -> None:
+def test_set_parameters_writes_quantum_weights_back_in_order(
+    target: str, complexity: str
+) -> None:
     """``set_parameters`` writes state-dict quantum weights into gates in order.
 
     Embeds a distinct, position-encoding weight vector (``[10, 20, 30, ...]``)
@@ -214,9 +218,15 @@ def test_parameter_order_follows_sorted_gate_depth(target: str) -> None:
     }
 
     # add gates out of depth order, each with a unique sentinel value
-    genome.add_gate(depth=0.7, method_name="rx", qubits=[("q", 0)], parameters={rx_parameter: 0.77})
-    genome.add_gate(depth=0.2, method_name="rx", qubits=[("q", 0)], parameters={rx_parameter: 0.22})
-    genome.add_gate(depth=0.5, method_name="rx", qubits=[("q", 0)], parameters={rx_parameter: 0.55})
+    genome.add_gate(
+        depth=0.7, method_name="rx", qubits=[("q", 0)], parameters={rx_parameter: 0.77}
+    )
+    genome.add_gate(
+        depth=0.2, method_name="rx", qubits=[("q", 0)], parameters={rx_parameter: 0.22}
+    )
+    genome.add_gate(
+        depth=0.5, method_name="rx", qubits=[("q", 0)], parameters={rx_parameter: 0.55}
+    )
 
     # get must return values ordered by ascending gate depth, not insert order
     assert genome.get_parameters_as_list() == [0.22, 0.55, 0.77]
@@ -230,13 +240,17 @@ def test_parameter_order_follows_sorted_gate_depth(target: str) -> None:
     state_dict = state_dict_with_quantum_weights(genome, [10.0, 20.0, 30.0])
     genome.set_parameters(state_dict)
 
-    value_by_depth = {gate.depth: float(gate.parameters[rx_parameter]) for gate in genome.gates}
+    value_by_depth = {
+        gate.depth: float(gate.parameters[rx_parameter]) for gate in genome.gates
+    }
     assert value_by_depth == {0.2: 10.0, 0.5: 20.0, 0.7: 30.0}
     assert genome.get_parameters_as_list() == [10.0, 20.0, 30.0]
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_multi_parameter_gate_preserves_within_gate_parameter_order(target: str) -> None:
+def test_multi_parameter_gate_preserves_within_gate_parameter_order(
+    target: str,
+) -> None:
     """A three-parameter ``u`` gate keeps its parameters in declared order.
 
     The gate-depth ordering test above only uses single-parameter gates, so

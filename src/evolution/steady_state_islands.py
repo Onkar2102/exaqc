@@ -558,13 +558,10 @@ class SteadyStateIslands(PopulationStrategy):
                 population=merged_population,
             )
 
-        if (
-            self.metric_best_genome is None
-            or (
-                "target_metric" in genome.fitness
-                and self.metric_best_genome.fitness["target_metric"]
-                <= genome.fitness["target_metric"]
-            )
+        if self.metric_best_genome is None or (
+            "target_metric" in genome.fitness
+            and self.metric_best_genome.fitness["target_metric"]
+            <= genome.fitness["target_metric"]
         ):
             self.metric_best_genome = genome
 
@@ -577,7 +574,6 @@ class SteadyStateIslands(PopulationStrategy):
             if self.out_dir is not None:
                 genome.save_circuit(insert_type="best_accuracy", out_dir=self.out_dir)
                 self.profiler.plot_single_run()
-
 
         if (
             self.global_best_genome is None

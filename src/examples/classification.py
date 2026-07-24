@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import argparse
 import math
+import numpy as np
 import os
 import torch
 import sys
-from typing import Iterable, Optional
+
+from loguru import logger
 
 from sklearn.datasets import load_iris, load_wine, load_breast_cancer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 
+from torch import Tensor
 from torch.utils.data import DataLoader, WeightedRandomSampler
-
-from loguru import logger
-import numpy as np
 
 from src.evolution.master_worker import master_worker
 
@@ -23,15 +23,21 @@ from src.evolution.steady_state_population import SteadyStatePopulation
 from src.evolution.objective import Objective
 from src.circuits.pennylane_gate_specifications import pennylane_gate_specifications
 from src.circuits.qiskit_gate_specifications import qiskit_gate_specifications
-from src.circuits.circuit import CircuitGenome, QUANTUM_INPUT_MODES, QUANTUM_OUTPUT_MODES
+from src.circuits.circuit import (
+    CircuitGenome,
+    QUANTUM_INPUT_MODES,
+    QUANTUM_OUTPUT_MODES,
+)
 from src.circuits.decoder import initialize_decoder, DECODING_OPTIONS
 from src.circuits.encoder import initialize_encoder, ENCODING_OPTIONS
 
 from src.datasets.classification import ClassificationDataset
 
+from src.metrics.metric import Metric
 from src.metrics.mean_class_accuracy import MeanClassAccuracy
 
 from src.trainer.supervised_trainer import SupervisedTrainer
+
 
 def get_dataloaders(
     x: np.ndarray,
@@ -56,9 +62,7 @@ def get_dataloaders(
         logger.fatal(
             f"Specified encoding strategy '{encoding}' unknown or not supported."
         )
-        logger.fatal(
-            f"Available options are: {ENCODING_OPTIONS}"
-        )
+        logger.fatal(f"Available options are: {ENCODING_OPTIONS}")
         exit(1)
 
     if normalize not in ["none", "zscore", "minmax"]:
@@ -86,7 +90,7 @@ def get_dataloaders(
         random_state=seed,
         stratify=y,
     )
-    
+
     logger.debug(f"x_train type: {x_train.dtype}")
     logger.debug(f"x_validation type: {x_validation.dtype}")
     logger.debug(f"y_train type: {y_train.dtype}")
@@ -165,7 +169,9 @@ def get_dataloaders(
         # otherwise just use a standard shuffled/batched dataloader
         logger.info("Using a standard shuffled/batched dataloader.")
 
-        training_loader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
+        training_loader = DataLoader(
+            training_dataset, batch_size=batch_size, shuffle=True
+        )
 
     validation_loader = DataLoader(
         validation_dataset, batch_size=batch_size, shuffle=False
@@ -250,10 +256,21 @@ class ClassificationObjective(Objective):
         # set the loss (lower is better) and target metric (higher is better)
         # values for the genome fitness.
         genome.fitness = {
-            "loss" : (genome.metadata["best_validation_metrics"]["loss"] + genome.metadata["best_training_metrics"]["loss"]) / 2.0,
-            "target_metric" : (genome.metadata["best_validation_metrics"]["mean_class_accuracy"]["mean"] + genome.metadata["best_training_metrics"]["mean_class_accuracy"]["mean"]) / 2.0,
+            "loss": (
+                genome.metadata["best_validation_metrics"]["loss"]
+                + genome.metadata["best_training_metrics"]["loss"]
+            )
+            / 2.0,
+            "target_metric": (
+                genome.metadata["best_validation_metrics"]["mean_class_accuracy"][
+                    "mean"
+                ]
+                + genome.metadata["best_training_metrics"]["mean_class_accuracy"][
+                    "mean"
+                ]
+            )
+            / 2.0,
         }
-
 
 
 # ---------------------------------------------------------------------
@@ -361,7 +378,6 @@ if __name__ == "__main__":
         help="Choose the kind of decoding",
     )
 
-
     p.add_argument(
         "--batch_size",
         type=int,
@@ -434,7 +450,7 @@ if __name__ == "__main__":
     )
 
     metrics = {}
-    metrics['mean_class_accuracy'] = MeanClassAccuracy(training_dataloader.n_labels)
+    metrics["mean_class_accuracy"] = MeanClassAccuracy(training_dataloader.n_labels)
 
     objective = ClassificationObjective(
         training_dataloader=training_dataloader,
@@ -463,8 +479,18 @@ if __name__ == "__main__":
     if args.quantum_output_mode == "probs":
         n_decoder_inputs = 2**n_decoder_inputs
 
-    initial_encoder = initialize_encoder(target=target, encoding_str=args.encoding, n_inputs=training_dataloader.n_features, n_outputs=n_encoder_outputs)
-    initial_decoder = initialize_decoder(target=target, decoding_str=args.decoding, n_inputs=n_decoder_inputs, n_outputs=training_dataloader.n_labels)
+    initial_encoder = initialize_encoder(
+        target=target,
+        encoding_str=args.encoding,
+        n_inputs=training_dataloader.n_features,
+        n_outputs=n_encoder_outputs,
+    )
+    initial_decoder = initialize_decoder(
+        target=target,
+        decoding_str=args.decoding,
+        n_inputs=n_decoder_inputs,
+        n_outputs=training_dataloader.n_labels,
+    )
 
     population = None
 
@@ -492,7 +518,6 @@ if __name__ == "__main__":
         gate_specifications = pennylane_gate_specifications
     else:
         gate_specifications = qiskit_gate_specifications
-
 
     master_worker(
         gate_specifications=gate_specifications,

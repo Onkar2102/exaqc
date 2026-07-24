@@ -28,7 +28,9 @@ from tests.supervised_trainer_test_utils import (
 TARGETS: tuple[str, ...] = ("pennylane", "qiskit")
 
 
-def _assert_all_params_received_gradient(parameters: list[torch.nn.Parameter], role: str) -> None:
+def _assert_all_params_received_gradient(
+    parameters: list[torch.nn.Parameter], role: str
+) -> None:
     """Asserts every parameter in ``parameters`` received a non-zero gradient.
 
     Args:
@@ -45,12 +47,16 @@ def _assert_all_params_received_gradient(parameters: list[torch.nn.Parameter], r
     assert parameters, f"expected at least one trainable {role} parameter to check"
     for param in parameters:
         assert param.grad is not None, f"{role} parameter received no gradient at all"
-        assert torch.any(param.grad != 0), f"{role} parameter gradient was entirely zero"
+        assert torch.any(
+            param.grad != 0
+        ), f"{role} parameter gradient was entirely zero"
 
 
 @pytest.mark.parametrize("complexity", COMPLEXITY_LEVELS)
 @pytest.mark.parametrize("target", TARGETS)
-def test_gradients_flow_through_trainable_encoder_circuit_decoder(target: str, complexity: str) -> None:
+def test_gradients_flow_through_trainable_encoder_circuit_decoder(
+    target: str, complexity: str
+) -> None:
     """A LinearEncoder/LinearDecoder genome should backprop through all three stages.
 
     Builds a genome with a trainable (``LinearEncoder``) encoder and a
@@ -86,17 +92,27 @@ def test_gradients_flow_through_trainable_encoder_circuit_decoder(target: str, c
     named_parameters = hybrid_named_parameters(genome)
 
     # all three stages must be present in the single hybrid-model view
-    assert any(name.startswith("encoder.") for name in named_parameters), "no encoder parameters found"
-    assert any(name.startswith("decoder.") for name in named_parameters), "no decoder parameters found"
-    assert genome.quantum_weight_key in named_parameters, "no quantum-layer weight found"
+    assert any(
+        name.startswith("encoder.") for name in named_parameters
+    ), "no encoder parameters found"
+    assert any(
+        name.startswith("decoder.") for name in named_parameters
+    ), "no decoder parameters found"
+    assert (
+        genome.quantum_weight_key in named_parameters
+    ), "no quantum-layer weight found"
 
     # and every trainable parameter must have received a non-zero gradient
-    _assert_all_params_received_gradient(list(named_parameters.values()), "hybrid model")
+    _assert_all_params_received_gradient(
+        list(named_parameters.values()), "hybrid model"
+    )
 
 
 @pytest.mark.parametrize("complexity", COMPLEXITY_LEVELS)
 @pytest.mark.parametrize("target", TARGETS)
-def test_gradients_flow_through_circuit_with_identity_and_clipped_coders(target: str, complexity: str) -> None:
+def test_gradients_flow_through_circuit_with_identity_and_clipped_coders(
+    target: str, complexity: str
+) -> None:
     """The quantum circuit's own parameters should train even with non-trainable coders.
 
     ``IdentityEncoder`` and ``ClippedDecoder`` contribute no trainable
@@ -129,12 +145,16 @@ def test_gradients_flow_through_circuit_with_identity_and_clipped_coders(target:
     loss = cross_entropy_on_logits(prediction, y)
     loss.backward()
 
-    _assert_all_params_received_gradient(circuit_trainable_parameters(genome), "quantum circuit")
+    _assert_all_params_received_gradient(
+        circuit_trainable_parameters(genome), "quantum circuit"
+    )
 
 
 @pytest.mark.parametrize("complexity", COMPLEXITY_LEVELS)
 @pytest.mark.parametrize("target", TARGETS)
-def test_forward_pass_has_no_trainable_parameters_without_parametric_gates(target: str, complexity: str) -> None:
+def test_forward_pass_has_no_trainable_parameters_without_parametric_gates(
+    target: str, complexity: str
+) -> None:
     """A structural-only circuit (no parametric gates) has nothing to train.
 
     This is a sanity check for the "no trainable parameters" scenario

@@ -178,13 +178,10 @@ class SteadyStatePopulation(PopulationStrategy):
         if self.profiler is not None:
             self.profiler.record(step=self.insertions, population=self.population)
 
-        if (
-            self.metric_best_genome is None
-            or (
-                "target_metric" in genome.fitness
-                and self.metric_best_genome.fitness["target_metric"]
-                <= genome.fitness["target_metric"]
-            )
+        if self.metric_best_genome is None or (
+            "target_metric" in genome.fitness
+            and self.metric_best_genome.fitness["target_metric"]
+            <= genome.fitness["target_metric"]
         ):
             self.metric_best_genome = genome
 

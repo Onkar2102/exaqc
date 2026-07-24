@@ -24,14 +24,15 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import json
-import os
+import json  # noqa: E402
+import os  # noqa: E402
+import pytest  # noqa: E402
 
-import pytest
+from src.circuits.circuit import CircuitGenome  # noqa: E402
 
-from src.circuits.circuit import CircuitGenome
-
-from tests.supervised_trainer_test_utils import build_classification_genome
+from tests.supervised_trainer_test_utils import (  # noqa: E402
+    build_classification_genome,
+)
 
 TARGETS: tuple[str, ...] = ("pennylane", "qiskit")
 
@@ -79,8 +80,14 @@ def _build_saveable_genome(
     # shared mutable dict) so tests stay isolated from one another.
     if with_metrics:
         genome.metadata = {
-            "best_training_metrics": {"loss": 0.1234, "mean_class_accuracy": {"mean": 0.95}},
-            "best_validation_metrics": {"loss": 0.2345, "mean_class_accuracy": {"mean": 0.85}},
+            "best_training_metrics": {
+                "loss": 0.1234,
+                "mean_class_accuracy": {"mean": 0.95},
+            },
+            "best_validation_metrics": {
+                "loss": 0.2345,
+                "mean_class_accuracy": {"mean": 0.85},
+            },
         }
     else:
         genome.metadata = {}
@@ -171,7 +178,9 @@ def test_save_circuit_png_is_a_valid_image(target: str, tmp_path, monkeypatch) -
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_save_circuit_json_round_trips_via_from_dict(target: str, tmp_path, monkeypatch) -> None:
+def test_save_circuit_json_round_trips_via_from_dict(
+    target: str, tmp_path, monkeypatch
+) -> None:
     """The written JSON is valid and reconstructs an equivalent genome.
 
     Args:
@@ -242,7 +251,9 @@ def test_save_circuit_uses_fitness_fallback_tag_without_metrics(
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_save_circuit_works_without_initialize_model(target: str, tmp_path, monkeypatch) -> None:
+def test_save_circuit_works_without_initialize_model(
+    target: str, tmp_path, monkeypatch
+) -> None:
     """``save_circuit`` lazily generates the circuit when not yet initialized.
 
     Args:

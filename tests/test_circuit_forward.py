@@ -31,11 +31,14 @@ def test_example_circuit_full_stack(target: str):
 
     # create a linear encoder which also needs to serialized weights
     n_qubits = len(qc.input_indexes)
-    qc.encoder = initialize_encoder(target=target, encoding_str="linear", n_inputs=n_qubits, n_outputs=n_qubits*3)
+    qc.encoder = initialize_encoder(
+        target=target, encoding_str="linear", n_inputs=n_qubits, n_outputs=n_qubits * 3
+    )
 
     # create a linear decoder which also needs to serialized weights
-    qc.decoder = initialize_decoder(target=target, decoding_str="linear", n_inputs=2**n_qubits, n_outputs=n_qubits)
-
+    qc.decoder = initialize_decoder(
+        target=target, decoding_str="linear", n_inputs=2**n_qubits, n_outputs=n_qubits
+    )
 
     qc.add_gate(depth=0.05, method_name="x", qubits=[("a", 1)])
     qc.add_gate(depth=0.10, method_name="x", qubits=[("b", 1)])
@@ -64,18 +67,14 @@ def test_example_circuit_full_stack(target: str):
     n_qubits = len(qc.qubits)
     input_bits = torch.zeros(n_qubits, dtype=torch.int64)
 
-    torch_params = {
-        f"{gate.innovation_number}:{name}": torch.tensor(value, dtype=torch.float64)
-        for gate in qc.gates
-        for name, value in gate.parameters.items()
-    }
-
     # ---- Generate circuit ----
     try:
         qc.initialize_model()
 
     except Exception as e:
-        pytest.fail(f"Failed to initialize quantum circuit model for target {target}: {e}")
+        pytest.fail(
+            f"Failed to initialize quantum circuit model for target {target}: {e}"
+        )
 
     # ---- Perform forward pass through circuit----
     output = None
@@ -86,7 +85,9 @@ def test_example_circuit_full_stack(target: str):
 
     # ---- Basic sanity checks ----
     assert output is not None, "Returned output tensor is None"
-    assert hasattr(output, "shape"), "Returned object has no shape (not a state vector?)"
+    assert hasattr(
+        output, "shape"
+    ), "Returned object has no shape (not a state vector?)"
     assert (
         len(output) == n_qubits
     ), f"Expected output tensor of size {n_qubits}, got tensor of shape {output.shape}"

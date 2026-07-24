@@ -8,9 +8,12 @@ from src.circuits.decoder import Decoder
 from src.circuits.encoder import Encoder
 from src.circuits.gate import Gate
 
-def torch_simplex_crossover(modules: list[torch.nn.Module], r: float) -> torch.nn.Module:
+
+def torch_simplex_crossover(
+    modules: list[torch.nn.Module], r: float
+) -> torch.nn.Module:
     """
-    Perform simplex crossover on a list of 
+    Perform simplex crossover on a list of
     Args:
         modules: is the list of torch.nn.Modules from the encoders or decoders of the
             crossover parents
@@ -31,20 +34,25 @@ def torch_simplex_crossover(modules: list[torch.nn.Module], r: float) -> torch.n
             # get the element wise mean of the other tensors
             tensor_mean = torch.stack(other_tensors).mean(dim=0)
 
-            '''
+            """
             print(f"primary tensor: {primary_tensor}")
             print(f"other tensors: {other_tensors}")
             print(f"tensor_mean: {tensor_mean}")
             print(f"r: {r}")
-            '''
+            """
 
-            child_state_dict[name] = (r * (tensor_mean - primary_tensor)) + primary_tensor
+            child_state_dict[name] = (
+                r * (tensor_mean - primary_tensor)
+            ) + primary_tensor
 
             # print(f"child tensor: {child_state_dict[name]}")
 
     return child
 
-def crossover_encoder_decoder(parents: list[CircuitGenome], r: float) -> (Encoder, Decoder):
+
+def crossover_encoder_decoder(
+    parents: list[CircuitGenome], r: float
+) -> (Encoder, Decoder):
     """
     Do crossover on encoders or decoders which are torch modules with
     parameters to also optimize.
@@ -70,6 +78,7 @@ def crossover_encoder_decoder(parents: list[CircuitGenome], r: float) -> (Encode
         decoder = parents[0].decoder.copy()
 
     return encoder, decoder
+
 
 def exponential_crossover(
     child: CircuitGenome,

@@ -1,19 +1,26 @@
 from __future__ import annotations
 
 import copy
-import json
 import torch
 
 from abc import ABC, abstractmethod
 from loguru import logger
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.circuits.circuit import CircuitGenome
+
+
 DECODING_OPTIONS = ["clipped", "linear"]
 
 
-def initialize_decoder(target: str, decoding_str: str, n_inputs: int, n_outputs: int) -> Decoder:
+def initialize_decoder(
+    target: str, decoding_str: str, n_inputs: int, n_outputs: int
+) -> Decoder:
     """
     Given the target system (e.g., pennylane or qiskit) create a
-    new decoder to perform decodings from classical to quantum 
+    new decoder to perform decodings from classical to quantum
     which will set the input parameter and input gate for each wire.
 
     Args:
@@ -85,23 +92,24 @@ class Decoder(ABC):
             "args": {
                 "n_inputs": self.n_inputs,
                 "n_outputs": self.n_outputs,
-            }
+            },
         }
 
         # for Decoders that are pytorch modules, also save
-        # their parameters (so we don't need to reimplement 
+        # their parameters (so we don't need to reimplement
         # this for each of them).
         if isinstance(self, torch.nn.Module):
             state_dict = self.state_dict()
 
             serialized_dict = {
-                name: tensor.cpu().numpy().tolist() for name, tensor in state_dict.items()
+                name: tensor.cpu().numpy().tolist()
+                for name, tensor in state_dict.items()
             }
 
-            '''
+            """
             logger.debug("serialized nn.Module tensor dict:")
             logger.debug(json.dumps(serialized_dict, indent=4))
-            '''
+            """
 
             response_dict["args"]["state_dict"] = serialized_dict
 
@@ -125,7 +133,7 @@ class Decoder(ABC):
         """
 
         # remove the module parameters so we can call the default
-        #constructor
+        # constructor
         serialized_state_dict = None
         if "state_dict" in serialized["args"].keys():
             serialized_state_dict = serialized["args"].pop("state_dict")
@@ -144,7 +152,6 @@ class Decoder(ABC):
             class_object.load_state_dict(state_dict)
 
         return class_object
-
 
     def copy(self) -> Decoder:
         """
@@ -167,7 +174,7 @@ class ClippedDecoder(Decoder):
                 inputs are being set
         """
 
-        clipped_inputs = inputs[:self.n_outputs]
+        clipped_inputs = inputs[: self.n_outputs]
 
         # rescale the inputs as probabilities so they sum to 1.0
         # this may not be needed
@@ -196,7 +203,9 @@ class LinearDecoder(torch.nn.Module, Decoder):
         torch.nn.Module.__init__(self)
         Decoder.__init__(self, n_inputs, n_outputs)
 
-        logger.debug(f"creating decoder with n_inputs: {n_inputs} and n_outputs: {n_outputs}")
+        logger.debug(
+            f"creating decoder with n_inputs: {n_inputs} and n_outputs: {n_outputs}"
+        )
 
         self.layer = torch.nn.Linear(self.n_inputs, self.n_outputs)
 
@@ -216,11 +225,11 @@ class LinearDecoder(torch.nn.Module, Decoder):
                 inputs are being set
         """
 
-        '''
+        """
         print(f"forward on linear, inputs: {inputs}, type: {inputs.dtype}")
         print(f"weights: {self.layer.weight}, type: {self.layer.weight.dtype}")
         print(f"biases: {self.layer.bias}, type: {self.layer.bias.dtype}")
-        '''
+        """
 
         # linear layer requires float32 values
         return self.layer(inputs.float())

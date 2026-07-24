@@ -1,20 +1,25 @@
 from __future__ import annotations
 
 import copy
-import json
-import pennylane as qml
 import torch
 
 from abc import ABC, abstractmethod
 from loguru import logger
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.circuits.circuit import CircuitGenome
+
 ENCODING_OPTIONS = ["identity", "linear"]
 
 
-def initialize_encoder(target: str, encoding_str: str, n_inputs: int, n_outputs: int) -> Encoder:
+def initialize_encoder(
+    target: str, encoding_str: str, n_inputs: int, n_outputs: int
+) -> Encoder:
     """
     Given the target system (e.g., pennylane or qiskit) create a
-    new encoder to perform encodings from classical to quantum 
+    new encoder to perform encodings from classical to quantum
     which will set the input parameter and input gate for each wire.
 
     Args:
@@ -84,23 +89,24 @@ class Encoder(ABC):
             "args": {
                 "n_inputs": self.n_inputs,
                 "n_outputs": self.n_outputs,
-            }
+            },
         }
 
         # for Decoders that are pytorch modules, also save
-        # their parameters (so we don't need to reimplement 
+        # their parameters (so we don't need to reimplement
         # this for each of them).
         if isinstance(self, torch.nn.Module):
             state_dict = self.state_dict()
 
             serialized_dict = {
-                name: tensor.cpu().numpy().tolist() for name, tensor in state_dict.items()
+                name: tensor.cpu().numpy().tolist()
+                for name, tensor in state_dict.items()
             }
 
-            '''
+            """
             logger.debug("serialized nn.Module tensor dict:")
             logger.debug(json.dumps(serialized_dict, indent=4))
-            '''
+            """
 
             response_dict["args"]["state_dict"] = serialized_dict
 
@@ -124,7 +130,7 @@ class Encoder(ABC):
         """
 
         # remove the module parameters so we can call the default
-        #constructor
+        # constructor
         serialized_state_dict = None
         if "state_dict" in serialized["args"].keys():
             serialized_state_dict = serialized["args"].pop("state_dict")
@@ -152,7 +158,6 @@ class Encoder(ABC):
         pass
 
 
-
 class IdentityEncoder(Encoder):
     def __call__(self, inputs: torch.Tensor, genome: CircuitGenome):
         """
@@ -161,7 +166,7 @@ class IdentityEncoder(Encoder):
 
         Args:
             inputs: the x (input) tensor for a sample, this will be the
-                same as the output. 
+                same as the output.
             genome: the circuit genome whose quantum circuit
                 inputs are being set
         """
@@ -184,14 +189,16 @@ class LinearEncoder(Encoder, torch.nn.Module):
         Args:
             n_inputs: how many classical input features will be used.
             n_outputs: how many outputs from the linear encoder, which should
-                be the same as the number of qubits that will be used as inputs 
+                be the same as the number of qubits that will be used as inputs
                 for the quantum circuit.
         """
         # initialize both superclasses
         torch.nn.Module.__init__(self)
         Encoder.__init__(self, n_inputs, n_outputs)
 
-        logger.debug(f"creating linear encoder with n_inputs: {n_inputs} and n_outputs: {n_outputs}")
+        logger.debug(
+            f"creating linear encoder with n_inputs: {n_inputs} and n_outputs: {n_outputs}"
+        )
 
         self.layer = torch.nn.Linear(self.n_inputs, self.n_outputs)
 
@@ -210,11 +217,11 @@ class LinearEncoder(Encoder, torch.nn.Module):
                 inputs are being set
         """
 
-        '''
+        """
         print(f"forward on linear incoder, inputs: {inputs}, type: {inputs.dtype}")
         print(f"weights: {self.layer.weight}, type: {self.layer.weight.dtype}")
         print(f"biases: {self.layer.bias}, type: {self.layer.bias.dtype}")
-        '''
+        """
 
         # linear layer requires float32 values
         encoding = self.layer(inputs.float())
@@ -228,5 +235,3 @@ class LinearEncoder(Encoder, torch.nn.Module):
             genomes without modifying the parents decoder.
         """
         return copy.deepcopy(self)
-
-

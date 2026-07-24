@@ -45,7 +45,7 @@ class MeanClassAccuracy(Metric):
 
         Args:
             outputs: is a tensor of length equal to the number of classes
-                in the dataset. the index of the largest value will be 
+                in the dataset. the index of the largest value will be
                 used as the predicted label.
             target: should be a single integer value which is the target
                 class index.
@@ -55,7 +55,7 @@ class MeanClassAccuracy(Metric):
         target = int(target.item())
 
         self.target_total[target] += 1
-        self.target_correct[target] += (predicted == target)
+        self.target_correct[target] += predicted == target
 
     def calculate(self) -> any:
         """
@@ -77,9 +77,9 @@ class MeanClassAccuracy(Metric):
             target_accuracy = float(correct) / float(total)
 
             accuracy_metric[target] = {
-                "acc" : target_accuracy,
-                "correct" : correct,
-                "total" : total,
+                "acc": target_accuracy,
+                "correct": correct,
+                "total": total,
             }
 
             mean_accuracy += target_accuracy
@@ -89,5 +89,3 @@ class MeanClassAccuracy(Metric):
         accuracy_metric["mean"] = mean_accuracy
 
         return accuracy_metric
-
-

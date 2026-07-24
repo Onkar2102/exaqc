@@ -89,7 +89,7 @@ class SupervisedTrainer:
             n_batches = len(dataloader)
             batch = 0
             for x_batch, y_batch in dataloader:
-                # logger.debug(f"batch: {batch} / {n_batches}")
+                logger.debug(f"batch: {batch} / {n_batches}")
                 batch += 1
                 batch_sum = Tensor([0])
 
@@ -149,25 +149,37 @@ class SupervisedTrainer:
         genome.metadata["training_epoch_metrics"] = []
         genome.metadata["validation_epoch_metrics"] = []
 
-        n_trainable_parameters = sum(p.numel() for p in genome.hybrid_model.parameters() if p.requires_grad)
+        n_trainable_parameters = sum(
+            p.numel() for p in genome.hybrid_model.parameters() if p.requires_grad
+        )
 
         logger.debug(f"hybrid model n trainable parameters: {n_trainable_parameters}")
 
         if n_trainable_parameters == 0:
             # this model has no parameters so it can't be trained. instead
             # just evaluate it on the validation data.
-            logger.info("model had no parameters so only evaluating the model on the data.")
+            logger.info(
+                "model had no parameters so only evaluating the model on the data."
+            )
 
             # calculate the metrics on the training data
-            training_metric_results = self.get_metrics(genome, dataloader=self.training_dataloader, loss_function=self.training_loss_function)
+            training_metric_results = self.get_metrics(
+                genome,
+                dataloader=self.training_dataloader,
+                loss_function=self.training_loss_function,
+            )
             logger.info(f"training metrics were: {training_metric_results}")
             genome.metadata["best_training_metrics"] = training_metric_results
 
             # calculate the metrics on the validation data
-            validation_metric_results = self.get_metrics(genome, dataloader=self.validation_dataloader, loss_function=self.validation_loss_function)
+            validation_metric_results = self.get_metrics(
+                genome,
+                dataloader=self.validation_dataloader,
+                loss_function=self.validation_loss_function,
+            )
             logger.info(f"validation metrics were: {validation_metric_results}")
             genome.metadata["best_validation_metrics"] = validation_metric_results
-            
+
             return
 
         optimizer = torch.optim.Adam(
@@ -181,25 +193,42 @@ class SupervisedTrainer:
         improvement_cutoff = 2
 
         for epoch in range(epochs):
-        # while True:
-            training_metric_results = self.get_metrics(genome, dataloader=self.training_dataloader, loss_function=self.training_loss_function, optimizer=optimizer, epoch=epoch)
-            logger.info(f"[epoch {epoch}] training metrics were: {training_metric_results}")
+            # while True:
+            training_metric_results = self.get_metrics(
+                genome,
+                dataloader=self.training_dataloader,
+                loss_function=self.training_loss_function,
+                optimizer=optimizer,
+                epoch=epoch,
+            )
+            logger.info(
+                f"[epoch {epoch}] training metrics were: {training_metric_results}"
+            )
             genome.metadata["training_epoch_metrics"].append(training_metric_results)
 
-            '''
+            """
             print("state dict:")
             print(optimizer.state_dict())
             print()
-            '''
+            """
 
             # calculate the metrics on the validation data
-            validation_metric_results = self.get_metrics(genome, dataloader=self.validation_dataloader, loss_function=self.validation_loss_function, epoch=epoch)
-            logger.info(f"[epoch {epoch}] validation metrics were: {validation_metric_results}")
-            genome.metadata["validation_epoch_metrics"].append(validation_metric_results)
+            validation_metric_results = self.get_metrics(
+                genome,
+                dataloader=self.validation_dataloader,
+                loss_function=self.validation_loss_function,
+                epoch=epoch,
+            )
+            logger.info(
+                f"[epoch {epoch}] validation metrics were: {validation_metric_results}"
+            )
+            genome.metadata["validation_epoch_metrics"].append(
+                validation_metric_results
+            )
 
             # TODO: try using the average of validation and training loss for fitness
-            validation_loss = validation_metric_results['loss']
-            training_loss = training_metric_results['loss']
+            validation_loss = validation_metric_results["loss"]
+            training_loss = training_metric_results["loss"]
 
             avg_loss = (validation_loss + training_loss) / 2.0
 
@@ -213,10 +242,16 @@ class SupervisedTrainer:
                 # get a copy of the current state dict of the hybrid model, this will be
                 # all the weights
                 with torch.no_grad():
-                    best_parameters = { name : tensor.detach().clone() for name, tensor in genome.hybrid_model.state_dict().items() }
+                    best_parameters = {
+                        name: tensor.detach().clone()
+                        for name, tensor in genome.hybrid_model.state_dict().items()
+                    }
 
             elif (epoch - best_epoch) > improvement_cutoff:
-                logger.info(f"stopping training on epoch {epoch} as last best epoch was {best_epoch} and no improvement found in {improvement_cutoff} epochs.")
+                logger.info(
+                    f"stopping training on epoch {epoch} as last best epoch was {best_epoch} "
+                    f"and no improvement found in {improvement_cutoff} epochs."
+                )
                 break
 
             epoch += 1

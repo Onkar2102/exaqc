@@ -24,8 +24,8 @@ from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.circuits.circuit import CircuitGenome
-from src.circuits.decoder import DECODING_OPTIONS, ClippedDecoder, initialize_decoder
-from src.circuits.encoder import ENCODING_OPTIONS, IdentityEncoder, initialize_encoder
+from src.circuits.decoder import DECODING_OPTIONS, initialize_decoder
+from src.circuits.encoder import ENCODING_OPTIONS, initialize_encoder
 from src.circuits.registers import expand_registers
 
 #: Complexity levels used to build circuits of increasing size/depth. Each
@@ -38,7 +38,9 @@ COMPLEXITY_LEVELS: tuple[str, ...] = ("minimal", "shallow", "deep")
 #: suites keep their existing single-parameter-gate coverage, and is opted
 #: into explicitly (e.g. by the parameter round-trip tests) where within-gate
 #: ordering matters.
-COMPLEXITY_LEVELS_WITH_MULTI_PARAM: tuple[str, ...] = COMPLEXITY_LEVELS + ("multi_param",)
+COMPLEXITY_LEVELS_WITH_MULTI_PARAM: tuple[str, ...] = COMPLEXITY_LEVELS + (
+    "multi_param",
+)
 
 #: encoder_name/decoder_name combinations exercised across the test suite.
 #: "identity"/"clipped" have no trainable parameters of their own, while
@@ -56,7 +58,9 @@ _N_QUBITS_BY_COMPLEXITY: dict[str, int] = {
 }
 
 
-def _gate_specs(complexity: str, include_parametric: bool, target: str) -> list[dict[str, object]]:
+def _gate_specs(
+    complexity: str, include_parametric: bool, target: str
+) -> list[dict[str, object]]:
     """Builds the list of gate specifications for a given complexity level.
 
     Gate method names are restricted to ones supported by both the
@@ -105,10 +109,24 @@ def _gate_specs(complexity: str, include_parametric: bool, target: str) -> list[
         if include_parametric:
             if target == "qiskit":
                 # the rx gate in qiskit uses "theta" instead of "phi"
-                return [dict(depth=0.5, method_name="rx", qubits=[("q", 0)], parameters={"theta": 0.4})]
+                return [
+                    dict(
+                        depth=0.5,
+                        method_name="rx",
+                        qubits=[("q", 0)],
+                        parameters={"theta": 0.4},
+                    )
+                ]
             else:
                 # the rx gate in qiskit uses "theta" instead of "phi"
-                return [dict(depth=0.5, method_name="rx", qubits=[("q", 0)], parameters={"phi": 0.4})]
+                return [
+                    dict(
+                        depth=0.5,
+                        method_name="rx",
+                        qubits=[("q", 0)],
+                        parameters={"phi": 0.4},
+                    )
+                ]
 
         return [dict(depth=0.5, method_name="h", qubits=[("q", 0)], parameters={})]
 
@@ -119,12 +137,37 @@ def _gate_specs(complexity: str, include_parametric: bool, target: str) -> list[
         if include_parametric:
             if target == "qiskit":
                 # the rx gate in qiskit uses "theta" instead of "phi"
-                specs.append(dict(depth=0.3, method_name="rx", qubits=[("q", 0)], parameters={"theta": 0.4}))
+                specs.append(
+                    dict(
+                        depth=0.3,
+                        method_name="rx",
+                        qubits=[("q", 0)],
+                        parameters={"theta": 0.4},
+                    )
+                )
             else:
-                specs.append(dict(depth=0.3, method_name="rx", qubits=[("q", 0)], parameters={"phi": 0.4}))
-        specs.append(dict(depth=0.5, method_name="cx", qubits=[("q", 0), ("q", 1)], parameters={}))
+                specs.append(
+                    dict(
+                        depth=0.3,
+                        method_name="rx",
+                        qubits=[("q", 0)],
+                        parameters={"phi": 0.4},
+                    )
+                )
+        specs.append(
+            dict(
+                depth=0.5, method_name="cx", qubits=[("q", 0), ("q", 1)], parameters={}
+            )
+        )
         if include_parametric:
-            specs.append(dict(depth=0.6, method_name="ry", qubits=[("q", 1)], parameters={"theta": 0.1}))
+            specs.append(
+                dict(
+                    depth=0.6,
+                    method_name="ry",
+                    qubits=[("q", 1)],
+                    parameters={"theta": 0.1},
+                )
+            )
         return specs
 
     if complexity == "deep":
@@ -134,20 +177,56 @@ def _gate_specs(complexity: str, include_parametric: bool, target: str) -> list[
         if include_parametric:
             if target == "qiskit":
                 # the rx gate in qiskit uses "theta" instead of "phi"
-                specs.append(dict(depth=0.15, method_name="rx", qubits=[("q", 0)], parameters={"theta": 0.4}))
+                specs.append(
+                    dict(
+                        depth=0.15,
+                        method_name="rx",
+                        qubits=[("q", 0)],
+                        parameters={"theta": 0.4},
+                    )
+                )
             else:
-                specs.append(dict(depth=0.15, method_name="rx", qubits=[("q", 0)], parameters={"phi": 0.4}))
+                specs.append(
+                    dict(
+                        depth=0.15,
+                        method_name="rx",
+                        qubits=[("q", 0)],
+                        parameters={"phi": 0.4},
+                    )
+                )
 
-        specs.append(dict(depth=0.3, method_name="cx", qubits=[("q", 0), ("q", 1)], parameters={}))
+        specs.append(
+            dict(
+                depth=0.3, method_name="cx", qubits=[("q", 0), ("q", 1)], parameters={}
+            )
+        )
         if include_parametric:
-            specs.append(dict(depth=0.35, method_name="ry", qubits=[("q", 1)], parameters={"theta": 0.1}))
-        specs.append(dict(depth=0.5, method_name="cx", qubits=[("q", 1), ("q", 2)], parameters={}))
+            specs.append(
+                dict(
+                    depth=0.35,
+                    method_name="ry",
+                    qubits=[("q", 1)],
+                    parameters={"theta": 0.1},
+                )
+            )
+        specs.append(
+            dict(
+                depth=0.5, method_name="cx", qubits=[("q", 1), ("q", 2)], parameters={}
+            )
+        )
         if include_parametric:
             # NOTE: qiskit's RZ gate expects a keyword argument named "phi"
             # (see src/circuits/qiskit_gate_specifications.py); using any
             # other parameter name (e.g. "theta") raises a TypeError deep
             # inside Gate.add_to_qiskit_circuit.
-            specs.append(dict(depth=0.55, method_name="rz", qubits=[("q", 2)], parameters={"phi": 0.2}))
+            specs.append(
+                dict(
+                    depth=0.55,
+                    method_name="rz",
+                    qubits=[("q", 2)],
+                    parameters={"phi": 0.2},
+                )
+            )
         specs.append(dict(depth=0.6, method_name="h", qubits=[("q", 2)], parameters={}))
         specs.append(dict(depth=0.7, method_name="x", qubits=[("q", 0)], parameters={}))
         return specs
@@ -164,7 +243,14 @@ def _gate_specs(complexity: str, include_parametric: bool, target: str) -> list[
         if include_parametric:
             # a single-parameter gate, then a three-parameter gate, so the
             # flattened parameter list mixes gates of different arities
-            specs.append(dict(depth=0.3, method_name="rx", qubits=[("q", 0)], parameters={rx_parameter: 0.4}))
+            specs.append(
+                dict(
+                    depth=0.3,
+                    method_name="rx",
+                    qubits=[("q", 0)],
+                    parameters={rx_parameter: 0.4},
+                )
+            )
             specs.append(
                 dict(
                     depth=0.4,
@@ -173,7 +259,11 @@ def _gate_specs(complexity: str, include_parametric: bool, target: str) -> list[
                     parameters={"theta": 0.1, "phi": 0.2, u_third_parameter: 0.3},
                 )
             )
-        specs.append(dict(depth=0.5, method_name="cx", qubits=[("q", 0), ("q", 1)], parameters={}))
+        specs.append(
+            dict(
+                depth=0.5, method_name="cx", qubits=[("q", 0), ("q", 1)], parameters={}
+            )
+        )
         if include_parametric:
             # a second three-parameter gate, on a different qubit, so
             # cross-gate ordering of multi-parameter gates is exercised too
@@ -249,7 +339,9 @@ def build_classification_genome(
     n_qubits = _N_QUBITS_BY_COMPLEXITY[complexity]
     qubits = expand_registers({"q": n_qubits})
 
-    genome = CircuitGenome(genome_number=genome_number, target=target, input_qubits=qubits)
+    genome = CircuitGenome(
+        genome_number=genome_number, target=target, input_qubits=qubits
+    )
     genome.hyperparameters = {
         "learning_rate": learning_rate,
         "epochs": epochs,
@@ -262,7 +354,10 @@ def build_classification_genome(
 
     if encoder_name in ENCODING_OPTIONS:
         genome.encoder = initialize_encoder(
-            target=target, encoding_str=encoder_name, n_inputs=raw_n_features, n_outputs=n_quantum_inputs
+            target=target,
+            encoding_str=encoder_name,
+            n_inputs=raw_n_features,
+            n_outputs=n_quantum_inputs,
         )
     else:
         raise ValueError(f"Unknown encoder_name: {encoder_name!r}")
@@ -273,7 +368,10 @@ def build_classification_genome(
     n_quantum_outputs = genome.n_quantum_outputs()
     if decoder_name in DECODING_OPTIONS:
         genome.decoder = initialize_decoder(
-            target=target, decoding_str=decoder_name, n_inputs=n_quantum_outputs, n_outputs=n_classes
+            target=target,
+            decoding_str=decoder_name,
+            n_inputs=n_quantum_outputs,
+            n_outputs=n_classes,
         )
     else:
         raise ValueError(f"Unknown decoder_name: {decoder_name!r}")
@@ -463,7 +561,11 @@ def snapshot_gate_parameters(genome: CircuitGenome) -> dict[int, dict[str, float
         its parameters dict.
     """
 
-    return {gate.innovation_number: dict(gate.parameters) for gate in genome.gates if gate.enabled}
+    return {
+        gate.innovation_number: dict(gate.parameters)
+        for gate in genome.gates
+        if gate.enabled
+    }
 
 
 def state_dict_with_quantum_weights(
@@ -501,4 +603,7 @@ def state_dict_with_quantum_weights(
         weight_param = hybrid_named_parameters(genome)[genome.quantum_weight_key]
         weight_param.copy_(torch.as_tensor(weights, dtype=weight_param.dtype))
 
-    return {name: tensor.detach().clone() for name, tensor in genome.hybrid_model.state_dict().items()}
+    return {
+        name: tensor.detach().clone()
+        for name, tensor in genome.hybrid_model.state_dict().items()
+    }

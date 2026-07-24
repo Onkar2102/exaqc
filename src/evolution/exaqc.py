@@ -27,7 +27,6 @@ from src.evolution.objective import Objective
 from src.evolution.population_strategy import PopulationStrategy
 
 
-
 class EXAQC:
 
     def __init__(
@@ -470,7 +469,9 @@ class EXAQC:
             child.hyperparameters = self.get_hyperparameters()
             child.encoder = self.initial_encoder.copy()
             child.decoder = self.initial_decoder.copy()
-            logger.info(f"set child encoder and decoder: {type(child.encoder)}, {type(child.decoder)}")
+            logger.info(
+                f"set child encoder and decoder: {type(child.encoder)}, {type(child.decoder)}"
+            )
 
             return child
 

@@ -48,17 +48,23 @@ def test_gate_creation(gate_method_name: str):
 
     # set up default hyperparameters for output generation
     qc.hyperparameters = {
-        "quantum_input_mode" : "rz",
-        "quantum_output_mode" : "probs",
+        "quantum_input_mode": "rz",
+        "quantum_output_mode": "probs",
     }
 
     print(f"qubit_args: {qubit_args}")
     print(f"n_qubits: {n_qubits}")
 
     # create a basic encoder and decoder
-    qc.encoder = initialize_encoder(target="pennylane", encoding_str="linear", n_inputs=n_qubits, n_outputs=n_qubits)
-    qc.decoder = initialize_decoder(target="pennylane", decoding_str="linear", n_inputs=2**n_qubits, n_outputs=n_qubits)
-
+    qc.encoder = initialize_encoder(
+        target="pennylane", encoding_str="linear", n_inputs=n_qubits, n_outputs=n_qubits
+    )
+    qc.decoder = initialize_decoder(
+        target="pennylane",
+        decoding_str="linear",
+        n_inputs=2**n_qubits,
+        n_outputs=n_qubits,
+    )
 
     # make the lost of qubit tuples for the add_gate method
     qc_qubits = []

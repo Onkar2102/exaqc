@@ -39,12 +39,14 @@ def test_all_disabled(target: str):
 
     # create a linear encoder which also needs to serialized weights
     n_qubits = len(qc.input_indexes)
-    qc.encoder = initialize_encoder(target=target, encoding_str="linear", n_inputs=n_qubits, n_outputs=n_qubits)
+    qc.encoder = initialize_encoder(
+        target=target, encoding_str="linear", n_inputs=n_qubits, n_outputs=n_qubits
+    )
 
     # create a linear decoder which also needs to serialized weights
-    qc.decoder = initialize_decoder(target=target, decoding_str="linear", n_inputs=2**n_qubits, n_outputs=n_qubits)
-
-
+    qc.decoder = initialize_decoder(
+        target=target, decoding_str="linear", n_inputs=2**n_qubits, n_outputs=n_qubits
+    )
 
     # cswap is one control two target
     qc.add_gate(

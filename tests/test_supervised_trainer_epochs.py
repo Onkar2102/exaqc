@@ -73,7 +73,9 @@ def _any_tensor_changed(before: list[torch.Tensor], after: list[torch.Tensor]) -
 
 
 @pytest.mark.parametrize("complexity", COMPLEXITY_LEVELS)
-@pytest.mark.parametrize("encoder_name,decoder_name,include_parametric", CODER_AND_PARAMETRIC_COMBOS)
+@pytest.mark.parametrize(
+    "encoder_name,decoder_name,include_parametric", CODER_AND_PARAMETRIC_COMBOS
+)
 @pytest.mark.parametrize("target", TARGETS)
 def test_train_runs_epochs_and_updates_parameters(
     target: str,
@@ -150,8 +152,12 @@ def test_train_runs_epochs_and_updates_parameters(
     assert math.isfinite(best_training_metrics["loss"])
     assert math.isfinite(best_validation_metrics["loss"])
 
-    encoder_changed = _any_tensor_changed(initial_encoder, encoder_trainable_parameters(genome))
-    decoder_changed = _any_tensor_changed(initial_decoder, decoder_trainable_parameters(genome))
+    encoder_changed = _any_tensor_changed(
+        initial_encoder, encoder_trainable_parameters(genome)
+    )
+    decoder_changed = _any_tensor_changed(
+        initial_decoder, decoder_trainable_parameters(genome)
+    )
     final_gate_parameters = snapshot_gate_parameters(genome)
     gate_params_changed = final_gate_parameters != initial_gate_parameters
 
