@@ -39,11 +39,57 @@ from src.metrics.mean_class_accuracy import MeanClassAccuracy
 from src.trainer.supervised_trainer import SupervisedTrainer
 
 
+def get_dataset(dataset: str) -> (np.ndarray, np.ndarray):
+    """
+    Loads the specifed dataset and returns the samples and
+    targets.
+
+    Args:
+        dataset: is name of the dataset to load.
+
+    Returns:
+        A tuple of (x, y) where x is the numpy array of
+        sample values and y is a numpy array of the
+        target classes.
+    """
+
+    x = None
+    y = None
+
+    if dataset in ["iris", "wine", "breast_cancer"]:
+        data = None
+        if dataset == "iris":
+            data = load_iris()
+
+        elif dataset == "wine":
+            data = load_wine()
+
+        elif dataset == "breast_cancer":
+            data = load_breast_cancer()
+
+        x = data.data
+        y = data.target
+
+    elif dataset == "seeds":
+        data = np.loadtxt("src/datasets/classification/data/seeds_dataset.txt")
+        # target_names = ["Kama", "Rosa", "Canadian"]
+
+        x = data[:, :7]  # (210, 7)
+        y = data[:, 7].astype(int)  # {1, 2, 3}
+
+        # Convert labels -> {0, 1, 2}
+        y = y - 1
+
+    else:
+        raise ValueError(dataset)
+
+    return x, y
+
+
 def get_dataloaders(
     x: np.ndarray,
     y: np.ndarray,
     normalize: str,
-    encoding: str,
     training_size: float = 0.8,
     batch_size: int = 1,
     seed: int = 0,
@@ -52,18 +98,9 @@ def get_dataloaders(
     x: is a 2D numpy array with the values for each sample
     y: are the target labels (as ints)
     normalize: how to normalize the data, can currently be 'none', 'zscore' or 'minmax'
-    encoding: can currently be 'basis', 'angle', or 'amplitude' and this will control how
-        the data is normalized (if at all).
     training_size: is the percentage of the data to use for training
     seed: is the seed for the train_test_split method for reproducibility
     """
-
-    if encoding not in ENCODING_OPTIONS:
-        logger.fatal(
-            f"Specified encoding strategy '{encoding}' unknown or not supported."
-        )
-        logger.fatal(f"Available options are: {ENCODING_OPTIONS}")
-        exit(1)
 
     if normalize not in ["none", "zscore", "minmax"]:
         logger.fatal(
@@ -291,12 +328,6 @@ if __name__ == "__main__":
     )
 
     p.add_argument(
-        "--loss",
-        default="ce",
-        choices=["per_class", "bce", "focal", "ce", "mse", "kl", "fidelity"],
-    )
-
-    p.add_argument(
         "--mutation_strategy",
         "-ms",
         type=str,
@@ -412,46 +443,19 @@ if __name__ == "__main__":
         "quantum_output_mode": args.quantum_output_mode,
     }
 
-    # set up the objective function
-    objective = None
-    if args.dataset in ["iris", "wine", "breast_cancer"]:
-        data = None
-        if args.dataset == "iris":
-            data = load_iris()
-
-        elif args.dataset == "wine":
-            data = load_wine()
-
-        elif args.dataset == "breast_cancer":
-            data = load_breast_cancer()
-
-        x = data.data
-        y = data.target
-
-    elif args.dataset == "seeds":
-        data = np.loadtxt("src/datasets/classification/data/seeds_dataset.txt")
-        target_names = ["Kama", "Rosa", "Canadian"]
-
-        x = data[:, :7]  # (210, 7)
-        y = data[:, 7].astype(int)  # {1, 2, 3}
-
-        # Convert labels -> {0, 1, 2}
-        y = y - 1
-
-    else:
-        raise ValueError(args.dataset)
+    x, y = get_dataset(args.dataset)
 
     training_dataloader, validation_dataloader = get_dataloaders(
         x=x,
         y=y,
         normalize="minmax",
-        encoding=args.encoding,
         batch_size=hyperparameters["batch_size"],
     )
 
     metrics = {}
     metrics["mean_class_accuracy"] = MeanClassAccuracy(training_dataloader.n_labels)
 
+    # set up the objective function
     objective = ClassificationObjective(
         training_dataloader=training_dataloader,
         validation_dataloader=validation_dataloader,
