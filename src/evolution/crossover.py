@@ -41,9 +41,12 @@ def torch_simplex_crossover(
             print(f"r: {r}")
             """
 
-            child_state_dict[name] = (
-                r * (tensor_mean - primary_tensor)
-            ) + primary_tensor
+            # copy_ into the child's parameter tensor in place. Assigning
+            # child_state_dict[name] = ... would only rebind the local dict
+            # entry and leave the child module's parameters unchanged.
+            child_state_dict[name].copy_(
+                (r * (tensor_mean - primary_tensor)) + primary_tensor
+            )
 
             # print(f"child tensor: {child_state_dict[name]}")
 

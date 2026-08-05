@@ -233,11 +233,13 @@ class SupervisedTrainer:
             avg_loss = (validation_loss + training_loss) / 2.0
 
             if best_loss > avg_loss:
-                genome.metadata["best_training_metrics"] = training_metric_results
-                genome.metadata["best_validation_metrics"] = validation_metric_results
-
                 best_loss = avg_loss
                 best_epoch = epoch
+
+                genome.metadata["best_training_metrics"] = training_metric_results
+                genome.metadata["best_validation_metrics"] = validation_metric_results
+                genome.metadata["best_epoch"] = best_epoch
+
 
                 # get a copy of the current state dict of the hybrid model, this will be
                 # all the weights
