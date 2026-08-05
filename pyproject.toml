@@ -14,7 +14,7 @@ dependencies = [
     "flake8",
     "numpy<2",
     "qiskit-aer",
-    "qiskit",
+    "qiskit==1.4.6",
     "qiskit_algorithms",
     "qiskit_machine_learning",
     "pennylane",
