@@ -569,13 +569,23 @@ class CircuitGenome:
 
             def forward(self, x: Tensor):
                 x = self.encoder(x, self)
-                # make sure the encoder is properly specified
-                assert len(x) == n_quantum_inputs
+
+                # Expected shapes:
+                #   single sample: [n_quantum_inputs]
+                #   batch:         [batch_size, n_quantum_inputs]
+                assert x.shape[-1] == n_quantum_inputs
 
                 x = self.quantum_layer(x)
 
-                # make sure the circuit outputs are properly specified
-                assert len(x) == n_quantum_outputs
+                # PennyLane may return [batch_size] for one quantum output.
+                if n_quantum_outputs == 1:
+                    if x.ndim == 1:
+                        x = x.unsqueeze(-1)
+
+                # Expected shapes:
+                #   single sample: [n_quantum_outputs]
+                #   batch:         [batch_size, n_quantum_outputs]
+                assert x.shape[-1] == n_quantum_outputs
 
                 x = self.decoder(x, self)
 
@@ -661,19 +671,19 @@ class CircuitGenome:
             if input_mode == "u3":
                 for i, w in enumerate(self.input_indexes):
                     start = i * 3
-                    qml.U3(inputs[start], inputs[start + 1], inputs[start + 2], w)
+                    qml.U3(inputs[...,start], inputs[...,start + 1], inputs[...,start + 2], w)
 
             elif input_mode == "rx":
                 for i, w in enumerate(self.input_indexes):
-                    qml.RX(inputs[i], w)
+                    qml.RX(inputs[...,i], w)
 
             elif input_mode == "ry":
                 for i, w in enumerate(self.input_indexes):
-                    qml.RY(inputs[i], w)
+                    qml.RY(inputs[...,i], w)
 
             elif input_mode == "rz":
                 for i, w in enumerate(self.input_indexes):
-                    qml.RZ(inputs[i], w)
+                    qml.RZ(inputs[...,i], w)
 
             elif input_mode == "basis":
                 qml.BasisState(inputs, wires=self.input_indexes)
@@ -763,7 +773,7 @@ class CircuitGenome:
 
         elif input_mode == "rz":
             for i, w in enumerate(self.input_indexes):
-                circuit.rx(inputs[i], w)
+                circuit.rz(inputs[i], w)
 
         else:
             raise ValueError(f"Unknown quantum_input_mode={input_mode}")
