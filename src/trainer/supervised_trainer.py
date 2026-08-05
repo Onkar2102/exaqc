@@ -163,18 +163,13 @@ class SupervisedTrainer:
         genome.metadata["training_epoch_metrics"] = []
         genome.metadata["validation_epoch_metrics"] = []
 
-        trainable_parameters = [
-            parameter
-            for parameter in genome.hybrid_model.parameters()
-            if parameter.requires_grad
-        ]
-
-        logger.debug(
-            "Hybrid model trainable parameter count: {}",
-            sum(parameter.numel() for parameter in trainable_parameters),
+        n_trainable_parameters = sum(
+            p.numel() for p in genome.hybrid_model.parameters() if p.requires_grad
         )
 
-        if not trainable_parameters:
+        logger.debug(f"hybrid model n trainable parameters: {n_trainable_parameters}")
+
+        if n_trainable_parameters == 0:
             # this model has no parameters so it can't be trained. instead
             # just evaluate it on the validation data.
             logger.info(
@@ -196,10 +191,14 @@ class SupervisedTrainer:
             )
             genome.metadata["best_training_metrics"] = training_metric_results
             genome.metadata["best_validation_metrics"] = validation_metric_results
+
+            logger.info(f"training metrics were: {training_metric_results}")
+            logger.info(f"validation metrics were: {validation_metric_results}")
+
             return
 
         optimizer = torch.optim.Adam(
-            trainable_parameters,
+            genome.hybrid_model.parameters(),
             lr=learning_rate,
             weight_decay=float(
                 hyperparameters.get("weight_decay", 0.0)

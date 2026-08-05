@@ -593,21 +593,21 @@ def get_uci_dataloaders(
             training_dataset,
             batch_size=batch_size,
             sampler=sampler,
-            num_workers=-1,
+            num_workers=0,
             shuffle=False,
         )
     else:
         training_loader = DataLoader(
             training_dataset,
             batch_size=batch_size,
-            num_workers=-1,
+            num_workers=0,
             shuffle=True,
         )
 
     validation_loader = DataLoader(
         validation_dataset,
         batch_size=batch_size,
-        num_workers=-1,
+        num_workers=0,
         shuffle=False,
     )
 
