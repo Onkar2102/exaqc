@@ -54,52 +54,52 @@ def initialize_encoder(
         encoder = IdentityEncoder(n_inputs, n_outputs)
 
     elif encoding_str == "cnn":
-            required = {
-                "input_channels",
-                "input_height",
-                "input_width",
-            }
-            missing = required.difference(encoder_config)
-            if missing:
-                raise ValueError(
-                    "CNN encoder configuration is missing required fields: "
-                    f"{sorted(missing)}"
-                )
-    
-            return CNNEncoder(
-                n_inputs=n_inputs,
-                n_outputs=n_outputs,
-                input_channels=int(encoder_config["input_channels"]),
-                input_height=int(encoder_config["input_height"]),
-                input_width=int(encoder_config["input_width"]),
-                conv_blocks=encoder_config["conv_blocks"],
-                adaptive_pool_size=tuple(
-                    int(value)
-                    for value in encoder_config.get(
-                        "adaptive_pool_size",
-                        (4, 4),
-                    )
-                ),
-                fully_connected_layers=tuple(
-                    int(value)
-                    for value in encoder_config.get(
-                        "fully_connected_layers",
-                        (),
-                    )
-                ),
-                dropout=float(
-                    encoder_config.get(
-                        "dropout",
-                        0.0,
-                    )
-                ),
-                output_activation=str(
-                    encoder_config.get(
-                        "output_activation",
-                        "tanh",
-                    )
-                ),
+        required = {
+            "input_channels",
+            "input_height",
+            "input_width",
+        }
+        missing = required.difference(encoder_config)
+        if missing:
+            raise ValueError(
+                "CNN encoder configuration is missing required fields: "
+                f"{sorted(missing)}"
             )
+
+        return CNNEncoder(
+            n_inputs=n_inputs,
+            n_outputs=n_outputs,
+            input_channels=int(encoder_config["input_channels"]),
+            input_height=int(encoder_config["input_height"]),
+            input_width=int(encoder_config["input_width"]),
+            conv_blocks=encoder_config["conv_blocks"],
+            adaptive_pool_size=tuple(
+                int(value)
+                for value in encoder_config.get(
+                    "adaptive_pool_size",
+                    (4, 4),
+                )
+            ),
+            fully_connected_layers=tuple(
+                int(value)
+                for value in encoder_config.get(
+                    "fully_connected_layers",
+                    (),
+                )
+            ),
+            dropout=float(
+                encoder_config.get(
+                    "dropout",
+                    0.0,
+                )
+            ),
+            output_activation=str(
+                encoder_config.get(
+                    "output_activation",
+                    "tanh",
+                )
+            ),
+        )
 
     else:
         raise ValueError(f"Unknown encoder={encoding_str} for target={target}")
@@ -212,7 +212,10 @@ class Encoder(ABC):
         class_init = globals()[serialized["class"]]
         class_object = class_init(**constructor_args)
 
-        if isinstance(class_object, torch.nn.Module) and serialized_state_dict is not None:
+        if (
+            isinstance(class_object, torch.nn.Module)
+            and serialized_state_dict is not None
+        ):
             # convert the JSON values back into tensors
             state_dict = {
                 name: torch.tensor(list_data)
@@ -362,17 +365,11 @@ class CNNEncoder(Encoder, torch.nn.Module):
         if not conv_blocks:
             raise ValueError("At least one convolution block is required.")
         if len(adaptive_pool_size) != 2:
-            raise ValueError(
-                "adaptive_pool_size must contain height and width."
-            )
+            raise ValueError("adaptive_pool_size must contain height and width.")
         if not 0.0 <= dropout < 1.0:
             raise ValueError("dropout must be in [0, 1).")
 
-        expected_inputs = (
-            input_channels
-            * input_height
-            * input_width
-        )
+        expected_inputs = input_channels * input_height * input_width
         if n_inputs != expected_inputs:
             raise ValueError(
                 f"n_inputs={n_inputs} does not match image shape "
@@ -385,27 +382,16 @@ class CNNEncoder(Encoder, torch.nn.Module):
         self.input_channels = int(input_channels)
         self.input_height = int(input_height)
         self.input_width = int(input_width)
-        self.conv_blocks_config = [
-            dict(block)
-            for block in conv_blocks
-        ]
-        self.adaptive_pool_size = tuple(
-            int(value)
-            for value in adaptive_pool_size
-        )
+        self.conv_blocks_config = [dict(block) for block in conv_blocks]
+        self.adaptive_pool_size = tuple(int(value) for value in adaptive_pool_size)
         self.fully_connected_layers = tuple(
-            int(value)
-            for value in fully_connected_layers
+            int(value) for value in fully_connected_layers
         )
         self.dropout = float(dropout)
         self.output_activation = output_activation
 
-        self.features, final_channels = (
-            self._build_feature_extractor()
-        )
-        self.projection = self._build_projection_head(
-            final_channels
-        )
+        self.features, final_channels = self._build_feature_extractor()
+        self.projection = self._build_projection_head(final_channels)
 
         self._initialize_parameters()
 
@@ -435,9 +421,7 @@ class CNNEncoder(Encoder, torch.nn.Module):
         try:
             return activations[name]()
         except KeyError as error:
-            raise ValueError(
-                f"Unsupported activation: {name}"
-            ) from error
+            raise ValueError(f"Unsupported activation: {name}") from error
 
     @staticmethod
     def _pooling(
@@ -458,9 +442,7 @@ class CNNEncoder(Encoder, torch.nn.Module):
             return None
 
         pool_type = str(config.get("type", "max"))
-        kernel_size = int(
-            config.get("kernel_size", 2)
-        )
+        kernel_size = int(config.get("kernel_size", 2))
         stride = config.get("stride", kernel_size)
 
         if pool_type == "max":
@@ -475,9 +457,7 @@ class CNNEncoder(Encoder, torch.nn.Module):
                 stride=stride,
             )
 
-        raise ValueError(
-            f"Unsupported pooling type: {pool_type}"
-        )
+        raise ValueError(f"Unsupported pooling type: {pool_type}")
 
     def _build_feature_extractor(
         self,
@@ -490,33 +470,16 @@ class CNNEncoder(Encoder, torch.nn.Module):
         layers: list[torch.nn.Module] = []
         in_channels = self.input_channels
 
-        for index, block in enumerate(
-            self.conv_blocks_config
-        ):
-            out_channels = int(
-                block["out_channels"]
-            )
-            kernel_size = int(
-                block.get("kernel_size", 3)
-            )
-            stride = int(
-                block.get("stride", 1)
-            )
-            padding = int(
-                block.get("padding", 1)
-            )
-            dilation = int(
-                block.get("dilation", 1)
-            )
-            use_bias = not bool(
-                block.get("batch_norm", True)
-            )
+        for index, block in enumerate(self.conv_blocks_config):
+            out_channels = int(block["out_channels"])
+            kernel_size = int(block.get("kernel_size", 3))
+            stride = int(block.get("stride", 1))
+            padding = int(block.get("padding", 1))
+            dilation = int(block.get("dilation", 1))
+            use_bias = not bool(block.get("batch_norm", True))
 
             if out_channels <= 0:
-                raise ValueError(
-                    "Conv block "
-                    f"{index} has invalid out_channels."
-                )
+                raise ValueError("Conv block " f"{index} has invalid out_channels.")
 
             layers.append(
                 torch.nn.Conv2d(
@@ -530,14 +493,8 @@ class CNNEncoder(Encoder, torch.nn.Module):
                 )
             )
 
-            if bool(
-                block.get("batch_norm", True)
-            ):
-                layers.append(
-                    torch.nn.BatchNorm2d(
-                        out_channels
-                    )
-                )
+            if bool(block.get("batch_norm", True)):
+                layers.append(torch.nn.BatchNorm2d(out_channels))
 
             layers.append(
                 self._activation(
@@ -550,29 +507,17 @@ class CNNEncoder(Encoder, torch.nn.Module):
                 )
             )
 
-            block_dropout = float(
-                block.get("dropout", 0.0)
-            )
+            block_dropout = float(block.get("dropout", 0.0))
             if block_dropout > 0.0:
-                layers.append(
-                    torch.nn.Dropout2d(
-                        block_dropout
-                    )
-                )
+                layers.append(torch.nn.Dropout2d(block_dropout))
 
-            pooling = self._pooling(
-                block.get("pool")
-            )
+            pooling = self._pooling(block.get("pool"))
             if pooling is not None:
                 layers.append(pooling)
 
             in_channels = out_channels
 
-        layers.append(
-            torch.nn.AdaptiveAvgPool2d(
-                self.adaptive_pool_size
-            )
-        )
+        layers.append(torch.nn.AdaptiveAvgPool2d(self.adaptive_pool_size))
 
         return (
             torch.nn.Sequential(*layers),
@@ -592,29 +537,16 @@ class CNNEncoder(Encoder, torch.nn.Module):
         Returns:
             Projection head producing ``n_outputs`` values.
         """
-        pooled_height, pooled_width = (
-            self.adaptive_pool_size
-        )
-        flattened_size = (
-            final_channels
-            * pooled_height
-            * pooled_width
-        )
+        pooled_height, pooled_width = self.adaptive_pool_size
+        flattened_size = final_channels * pooled_height * pooled_width
 
-        layers: list[torch.nn.Module] = [
-            torch.nn.Flatten(start_dim=1)
-        ]
+        layers: list[torch.nn.Module] = [torch.nn.Flatten(start_dim=1)]
 
         current_size = flattened_size
 
-        for hidden_size in (
-            self.fully_connected_layers
-        ):
+        for hidden_size in self.fully_connected_layers:
             if hidden_size <= 0:
-                raise ValueError(
-                    "Fully connected layer sizes "
-                    "must be positive."
-                )
+                raise ValueError("Fully connected layer sizes " "must be positive.")
 
             layers.append(
                 torch.nn.Linear(
@@ -625,11 +557,7 @@ class CNNEncoder(Encoder, torch.nn.Module):
             layers.append(torch.nn.ReLU())
 
             if self.dropout > 0.0:
-                layers.append(
-                    torch.nn.Dropout(
-                        self.dropout
-                    )
-                )
+                layers.append(torch.nn.Dropout(self.dropout))
 
             current_size = hidden_size
 
@@ -639,11 +567,7 @@ class CNNEncoder(Encoder, torch.nn.Module):
                 self.n_outputs,
             )
         )
-        layers.append(
-            self._activation(
-                self.output_activation
-            )
-        )
+        layers.append(self._activation(self.output_activation))
 
         return torch.nn.Sequential(*layers)
 
@@ -659,20 +583,14 @@ class CNNEncoder(Encoder, torch.nn.Module):
                     nonlinearity="relu",
                 )
                 if module.bias is not None:
-                    torch.nn.init.zeros_(
-                        module.bias
-                    )
+                    torch.nn.init.zeros_(module.bias)
 
             elif isinstance(
                 module,
                 torch.nn.Linear,
             ):
-                torch.nn.init.xavier_uniform_(
-                    module.weight
-                )
-                torch.nn.init.zeros_(
-                    module.bias
-                )
+                torch.nn.init.xavier_uniform_(module.weight)
+                torch.nn.init.zeros_(module.bias)
 
     def __call__(
         self,
@@ -706,18 +624,14 @@ class CNNEncoder(Encoder, torch.nn.Module):
             self.input_width,
         )
 
-        if tuple(inputs.shape[1:]) != (
-            expected_shape
-        ):
+        if tuple(inputs.shape[1:]) != (expected_shape):
             raise ValueError(
                 f"Expected image shape "
                 f"{expected_shape}, received "
                 f"{tuple(inputs.shape[1:])}."
             )
 
-        features = self.features(
-            inputs.float()
-        )
+        features = self.features(inputs.float())
         return self.projection(features)
 
     def get_constructor_args(
@@ -731,27 +645,16 @@ class CNNEncoder(Encoder, torch.nn.Module):
         return {
             "n_inputs": self.n_inputs,
             "n_outputs": self.n_outputs,
-            "input_channels": (
-                self.input_channels
-            ),
+            "input_channels": (self.input_channels),
             "input_height": self.input_height,
             "input_width": self.input_width,
             "conv_blocks": [
-                copy.deepcopy(block)
-                for block in (
-                    self.conv_blocks_config
-                )
+                copy.deepcopy(block) for block in (self.conv_blocks_config)
             ],
-            "adaptive_pool_size": list(
-                self.adaptive_pool_size
-            ),
-            "fully_connected_layers": list(
-                self.fully_connected_layers
-            ),
+            "adaptive_pool_size": list(self.adaptive_pool_size),
+            "fully_connected_layers": list(self.fully_connected_layers),
             "dropout": self.dropout,
-            "output_activation": (
-                self.output_activation
-            ),
+            "output_activation": (self.output_activation),
         }
 
     def copy(self) -> CNNEncoder:

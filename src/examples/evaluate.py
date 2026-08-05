@@ -45,11 +45,7 @@ def main() -> None:
         download=args.download_dataset,
     )
 
-    metrics = {
-        "mean_class_accuracy": MeanClassAccuracy(
-            testing_loader.n_labels
-        )
-    }
+    metrics = {"mean_class_accuracy": MeanClassAccuracy(testing_loader.n_labels)}
 
     testing_loss = torch.nn.CrossEntropyLoss(
         weight=testing_loader.label_weights,

@@ -5,6 +5,9 @@ import os
 import sys
 from typing import Any
 
+import json
+from pathlib import Path
+
 import torch
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -102,11 +105,7 @@ class ClassificationObjective(Objective):
         validation = genome.metadata["best_validation_metrics"]
 
         genome.fitness = {
-            "loss": (
-                float(training["loss"])
-                + float(validation["loss"])
-            )
-            / 2.0,
+            "loss": (float(training["loss"]) + float(validation["loss"])) / 2.0,
             "target_metric": (
                 float(training["mean_class_accuracy"]["mean"])
                 + float(validation["mean_class_accuracy"]["mean"])
@@ -122,9 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
         Configured argument parser.
     """
     parser = argparse.ArgumentParser(
-        description=(
-            "Run batched EXAQC classification on UCI and image datasets."
-        )
+        description=("Run batched EXAQC classification on UCI and image datasets.")
     )
     parser.add_argument(
         "--dataset",
@@ -222,7 +219,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--quantum_input_mode",
         "-qim",
-
         choices=QUANTUM_INPUT_MODES,
         default="u3",
         help="Choose initial gate types whose parameteres will be  set from classical inputs",
@@ -363,9 +359,6 @@ def load_data(
     )
     return training_loader, validation_loader
 
-import json
-from pathlib import Path
-
 
 def load_encoder_config(
     path: str | None,
@@ -391,10 +384,7 @@ def load_encoder_config(
         config = json.load(file)
 
     if not isinstance(config, dict):
-        raise ValueError(
-            "Encoder configuration must "
-            "contain a JSON object."
-        )
+        raise ValueError("Encoder configuration must " "contain a JSON object.")
 
     return config
 
@@ -412,16 +402,12 @@ def main() -> None:
     training_loader, validation_loader = load_data(args)
 
     if training_loader.is_image and args.encoding != "cnn":
-        parser.error(
-            "Image datasets require --encoding cnn in this implementation."
-        )
+        parser.error("Image datasets require --encoding cnn in this implementation.")
     if not training_loader.is_image and args.encoding == "cnn":
         parser.error("CNN encoding is only valid for image datasets.")
 
     metrics: dict[str, Metric] = {
-        "mean_class_accuracy": MeanClassAccuracy(
-            training_loader.n_labels
-        )
+        "mean_class_accuracy": MeanClassAccuracy(training_loader.n_labels)
     }
     objective = ClassificationObjective(
         training_dataloader=training_loader,
@@ -443,16 +429,14 @@ def main() -> None:
 
     n_decoder_inputs = args.output_qubits
     if args.quantum_output_mode == "probs":
-        n_decoder_inputs = 2 ** args.output_qubits
+        n_decoder_inputs = 2**args.output_qubits
 
     encoder_config = None
     if training_loader.is_image:
         channels, height, width = training_loader.input_shape
 
-        encoder_config = load_encoder_config(
-            args.encoder_config
-        )
-    
+        encoder_config = load_encoder_config(args.encoder_config)
+
         encoder_config.update(
             {
                 "input_channels": channels,
@@ -488,12 +472,8 @@ def main() -> None:
         population = SteadyStateIslands(
             n_islands=args.n_islands,
             max_island_size=args.max_island_size,
-            genomes_before_extinction=(
-                args.genomes_before_extinction
-            ),
-            genomes_for_next_extinction=(
-                args.genomes_for_next_extinction
-            ),
+            genomes_before_extinction=(args.genomes_before_extinction),
+            genomes_for_next_extinction=(args.genomes_for_next_extinction),
             islands_to_extinct=args.islands_to_extinct,
             primary_parent=args.primary_parent,
             compare=compare,

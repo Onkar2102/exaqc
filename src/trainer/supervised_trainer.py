@@ -48,13 +48,17 @@ class SupervisedTrainer:
             testing_loss_function: Optional held-out test loss function.
                 Defaults to the validation loss function.
         """
-        
+
         self.training_dataloader = training_dataloader
         self.validation_dataloader = validation_dataloader
         self.testing_dataloader = testing_dataloader
         self.training_loss_function = training_loss_function
         self.validation_loss_function = validation_loss_function
-        self.testing_loss_function = testing_loss_function if testing_loss_function is not None else validation_loss_function
+        self.testing_loss_function = (
+            testing_loss_function
+            if testing_loss_function is not None
+            else validation_loss_function
+        )
         self.metrics = metrics
 
     def get_metrics(
@@ -130,11 +134,7 @@ class SupervisedTrainer:
                             metric.accumulate(prediction.float(), target.long())
 
         metric_results: dict[str, Any] = {
-            "loss": (
-                total_loss / total_samples
-                if total_samples
-                else float("nan")
-            )
+            "loss": (total_loss / total_samples if total_samples else float("nan"))
         }
         for metric_name, metric in self.metrics.items():
             metric_results[metric_name] = metric.calculate()
@@ -172,9 +172,7 @@ class SupervisedTrainer:
         if n_trainable_parameters == 0:
             # this model has no parameters so it can't be trained. instead
             # just evaluate it on the validation data.
-            logger.info(
-                "Model has no trainable parameters; evaluating only."
-            )
+            logger.info("Model has no trainable parameters; evaluating only.")
 
             # calculate the metrics on the training data
             training_metric_results = self.get_metrics(
@@ -200,16 +198,12 @@ class SupervisedTrainer:
         optimizer = torch.optim.Adam(
             genome.hybrid_model.parameters(),
             lr=learning_rate,
-            weight_decay=float(
-                hyperparameters.get("weight_decay", 0.0)
-            ),
+            weight_decay=float(hyperparameters.get("weight_decay", 0.0)),
         )
 
         best_loss = math.inf
         best_epoch = 0
-        improvement_cutoff = int(
-            hyperparameters.get("improvement_cutoff", 2)
-        )
+        improvement_cutoff = int(hyperparameters.get("improvement_cutoff", 2))
         best_parameters = {
             name: tensor.detach().clone()
             for name, tensor in genome.hybrid_model.state_dict().items()
@@ -228,9 +222,7 @@ class SupervisedTrainer:
                 epoch,
                 training_metric_results,
             )
-            genome.metadata["training_epoch_metrics"].append(
-                training_metric_results
-            )
+            genome.metadata["training_epoch_metrics"].append(training_metric_results)
 
             # calculate the metrics on the validation data
             validation_metric_results = self.get_metrics(
@@ -266,9 +258,7 @@ class SupervisedTrainer:
                 with torch.no_grad():
                     best_parameters = {
                         name: tensor.detach().clone()
-                        for name, tensor in (
-                            genome.hybrid_model.state_dict().items()
-                        )
+                        for name, tensor in (genome.hybrid_model.state_dict().items())
                     }
             elif epoch - best_epoch > improvement_cutoff:
                 logger.info(
@@ -284,12 +274,11 @@ class SupervisedTrainer:
             best_epoch,
             epochs,
         )
-        
+
         # set the genome's parameters to the ones from the best validation loss
         genome.set_parameters(best_parameters)
 
         return
-
 
     def test(
         self,
@@ -307,9 +296,7 @@ class SupervisedTrainer:
             ValueError: If no test dataloader was provided.
         """
         if self.testing_dataloader is None:
-            raise ValueError(
-                "No testing dataloader was provided to SupervisedTrainer."
-            )
+            raise ValueError("No testing dataloader was provided to SupervisedTrainer.")
 
         test_metrics = self.get_metrics(
             genome=genome,

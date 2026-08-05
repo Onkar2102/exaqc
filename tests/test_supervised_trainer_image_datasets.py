@@ -96,9 +96,7 @@ def test_load_data_uses_image_dataloader(
         normalization="minmax",
     )
 
-    returned_training, returned_validation = (
-        classification.load_data(args)
-    )
+    returned_training, returned_validation = classification.load_data(args)
 
     assert returned_training is training_loader
     assert returned_validation is validation_loader
@@ -134,9 +132,7 @@ def test_load_encoder_config_reads_json(
         encoding="utf-8",
     )
 
-    config = classification.load_encoder_config(
-        str(config_path)
-    )
+    config = classification.load_encoder_config(str(config_path))
 
     assert config == {
         "activation": "relu",
@@ -180,16 +176,10 @@ def test_main_builds_cnn_encoder_for_image_data(
     mocked_decoder = MagicMock(name="decoder")
     mocked_population = MagicMock(name="population")
 
-    mocked_initialize_encoder = MagicMock(
-        return_value=mocked_encoder
-    )
-    mocked_initialize_decoder = MagicMock(
-        return_value=mocked_decoder
-    )
+    mocked_initialize_encoder = MagicMock(return_value=mocked_encoder)
+    mocked_initialize_decoder = MagicMock(return_value=mocked_decoder)
     mocked_master_worker = MagicMock()
-    mocked_population_class = MagicMock(
-        return_value=mocked_population
-    )
+    mocked_population_class = MagicMock(return_value=mocked_population)
 
     monkeypatch.setattr(
         classification,

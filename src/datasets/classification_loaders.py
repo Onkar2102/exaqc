@@ -131,8 +131,7 @@ def _stratified_indices(
 
     if selected_size <= 0 or selected_size > n_samples:
         raise ValueError(
-            f"selected_size must be in [1, {n_samples}], "
-            f"received {selected_size}."
+            f"selected_size must be in [1, {n_samples}], " f"received {selected_size}."
         )
 
     all_indices = np.arange(n_samples)
@@ -296,12 +295,8 @@ def get_image_dataloaders(
         seed=seed + 1,
     )
 
-    training_indices = np.asarray(training_indices)[
-        selected_training_positions
-    ]
-    validation_indices = np.asarray(validation_indices)[
-        selected_validation_positions
-    ]
+    training_indices = np.asarray(training_indices)[selected_training_positions]
+    validation_indices = np.asarray(validation_indices)[selected_validation_positions]
 
     training_dataset = Subset(
         full_dataset,
@@ -368,6 +363,7 @@ def get_image_dataloaders(
     )
     return training_loader, validation_loader
 
+
 def get_image_test_dataloader(
     dataset: str,
     data_dir: str | Path = "data",
@@ -429,9 +425,7 @@ def get_image_test_dataloader(
         seed=42,
     )
 
-    testing_indices = np.asarray(testing_indices)[
-        selected_testing_positions
-    ]
+    testing_indices = np.asarray(testing_indices)[selected_testing_positions]
 
     test_dataset = Subset(
         test_dataset,
@@ -501,12 +495,11 @@ def get_uci_dataset(dataset: str) -> tuple[np.ndarray, np.ndarray]:
         return data.data, data.target
 
     if dataset == "seeds":
-        data = np.loadtxt(
-            "src/datasets/classification/data/seeds_dataset.txt"
-        )
+        data = np.loadtxt("src/datasets/classification/data/seeds_dataset.txt")
         return data[:, :7], data[:, 7].astype(int) - 1
 
     raise ValueError(f"Unknown UCI dataset: {dataset}")
+
 
 def get_uci_dataloaders(
     dataset: str,
@@ -534,9 +527,7 @@ def get_uci_dataloaders(
         ValueError: If arguments are invalid.
     """
     if normalize not in {"none", "zscore", "minmax"}:
-        raise ValueError(
-            "normalize must be one of 'none', 'zscore', or 'minmax'."
-        )
+        raise ValueError("normalize must be one of 'none', 'zscore', or 'minmax'.")
     if batch_size <= 0:
         raise ValueError("batch_size must be positive.")
 

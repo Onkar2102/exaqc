@@ -76,7 +76,7 @@ class MeanClassAccuracy(Metric):
             target_value = int(target_label.item())
 
             self.target_total[target_value] += 1
-            self.target_correct[target_value] += (predicted_value == target_value)
+            self.target_correct[target_value] += predicted_value == target_value
 
     def calculate(self) -> any:
         """

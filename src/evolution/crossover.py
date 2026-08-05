@@ -32,9 +32,8 @@ def torch_simplex_crossover(
 
             other_tensors = [other.state_dict()[name] for other in others]
 
-            if (
-                torch.is_floating_point(primary_tensor)
-                or torch.is_complex(primary_tensor)
+            if torch.is_floating_point(primary_tensor) or torch.is_complex(
+                primary_tensor
             ):
                 # get the element wise mean of the other tensors
                 tensor_mean = torch.stack(other_tensors).mean(dim=0)

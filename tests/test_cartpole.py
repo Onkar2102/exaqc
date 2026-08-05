@@ -15,6 +15,7 @@ target_backend = "pennylane"
 
 pytest.skip("Temporarily disabled due to refactor", allow_module_level=True)
 
+
 def _make_genome(genome_number: int):
     """
     Best-effort factory for your CircuitGenome without knowing the exact constructor.
