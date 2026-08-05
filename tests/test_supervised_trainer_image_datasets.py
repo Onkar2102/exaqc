@@ -5,20 +5,16 @@ import sys
 from types import SimpleNamespace, ModuleType
 from unittest.mock import MagicMock
 
-mock_master_worker_module = ModuleType(
-    "src.evolution.master_worker"
-)
-mock_master_worker_module.master_worker = MagicMock()
-
-sys.modules[
-    "src.evolution.master_worker"
-] = mock_master_worker_module
-
 import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-import src.examples.classification as classification
+mock_master_worker_module = ModuleType("src.evolution.master_worker")
+mock_master_worker_module.master_worker = MagicMock()
+
+sys.modules["src.evolution.master_worker"] = mock_master_worker_module
+
+import src.examples.classification as classification  # noqa
 
 
 def make_image_loader(
