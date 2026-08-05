@@ -384,7 +384,7 @@ def load_encoder_config(
         config = json.load(file)
 
     if not isinstance(config, dict):
-        raise ValueError("Encoder configuration must " "contain a JSON object.")
+        raise ValueError("Encoder configuration must contain a JSON object.")
 
     return config
 
