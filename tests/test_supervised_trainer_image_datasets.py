@@ -2,8 +2,17 @@ from __future__ import annotations
 
 import json
 import sys
-from types import SimpleNamespace
+from types import SimpleNamespace, ModuleType
 from unittest.mock import MagicMock
+
+mock_master_worker_module = ModuleType(
+    "src.evolution.master_worker"
+)
+mock_master_worker_module.master_worker = MagicMock()
+
+sys.modules[
+    "src.evolution.master_worker"
+] = mock_master_worker_module
 
 import pytest
 import torch
