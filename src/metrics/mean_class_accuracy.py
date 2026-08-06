@@ -51,11 +51,32 @@ class MeanClassAccuracy(Metric):
                 class index.
         """
 
-        predicted = int(torch.argmax(output).item())
-        target = int(target.item())
+        # predicted = int(torch.argmax(output).item())
+        # target = int(target.item())
 
-        self.target_total[target] += 1
-        self.target_correct[target] += predicted == target
+        # self.target_total[target] += 1
+        # self.target_correct[target] += predicted == target
+
+        if output.ndim == 1:
+            output = output.unsqueeze(0)
+
+        if target.ndim == 0:
+            target = target.unsqueeze(0)
+
+        if output.shape[0] != target.shape[0]:
+            raise ValueError(
+                "Output and target batch sizes must match: "
+                f"{output.shape[0]} != {target.shape[0]}."
+            )
+
+        predicted = torch.argmax(output, dim=1)
+
+        for predicted_label, target_label in zip(predicted, target):
+            predicted_value = int(predicted_label.item())
+            target_value = int(target_label.item())
+
+            self.target_total[target_value] += 1
+            self.target_correct[target_value] += predicted_value == target_value
 
     def calculate(self) -> any:
         """

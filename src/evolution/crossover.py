@@ -31,31 +31,33 @@ def torch_simplex_crossover(
             primary_tensor = primary.state_dict()[name]
 
             other_tensors = [other.state_dict()[name] for other in others]
-            # get the element wise mean of the other tensors
-            tensor_mean = torch.stack(other_tensors).mean(dim=0)
 
-            """
-            print(f"primary tensor: {primary_tensor}")
-            print(f"other tensors: {other_tensors}")
-            print(f"tensor_mean: {tensor_mean}")
-            print(f"r: {r}")
-            """
+            if torch.is_floating_point(primary_tensor) or torch.is_complex(
+                primary_tensor
+            ):
+                # get the element wise mean of the other tensors
+                tensor_mean = torch.stack(other_tensors).mean(dim=0)
 
-            # copy_ into the child's parameter tensor in place. Assigning
-            # child_state_dict[name] = ... would only rebind the local dict
-            # entry and leave the child module's parameters unchanged.
-            child_state_dict[name].copy_(
-                (r * (tensor_mean - primary_tensor)) + primary_tensor
-            )
+                # copy_ into the child's parameter tensor in place. Assigning
+                # child_state_dict[name] = ... would only rebind the local dict
+                # entry and leave the child module's parameters unchanged.
+                child_state_dict[name].copy_(
+                    (r * (tensor_mean - primary_tensor)) + primary_tensor
+                )
 
-            # print(f"child tensor: {child_state_dict[name]}")
+            else:
+                # Integer and Boolean buffers, such as BatchNorm's
+                # num_batches_tracked, cannot be averaged.
+                child_state_dict[name].copy_(primary_tensor.clone())
+
+        child.load_state_dict(child_state_dict)
 
     return child
 
 
 def crossover_encoder_decoder(
     parents: list[CircuitGenome], r: float
-) -> (Encoder, Decoder):
+) -> tuple[Encoder, Decoder]:
     """
     Do crossover on encoders or decoders which are torch modules with
     parameters to also optimize.
