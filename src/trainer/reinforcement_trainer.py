@@ -120,6 +120,12 @@ class RLEnvironment:
         obs_encoder: Callable mapping a raw observation into a float tensor
             of shape ``(n_observation_features,)``.
         env_kwargs: Optional keyword arguments passed to ``gym.make``.
+        deterministic: Whether the environment is fully deterministic (fixed
+            initial state and transitions). When True, a greedy policy
+            produces the same episode every time regardless of seed, so
+            greedy evaluation runs a single episode instead of
+            ``eval_episodes`` identical ones (see
+            :meth:`ReinforcementLearningTrainer.evaluate`).
     """
 
     env_id: str
@@ -127,6 +133,7 @@ class RLEnvironment:
     n_observation_features: int
     obs_encoder: Callable[[Any], Tensor]
     env_kwargs: Optional[dict[str, Any]] = None
+    deterministic: bool = False
 
     def make(self) -> gym.Env:
         """Instantiates the underlying Gymnasium environment.
@@ -551,6 +558,12 @@ class ReinforcementLearningTrainer(ABC):
     ) -> dict[str, float]:
         """Evaluates the genome greedily over several episodes.
 
+        Because evaluation is greedy (deterministic policy), the only source
+        of variation between episodes is the environment. For a deterministic
+        environment (``environment.deterministic``) every episode is therefore
+        identical, so a single episode is run instead of ``eval_episodes``
+        redundant copies.
+
         Args:
             genome: The genome policy to evaluate.
             environment: The environment to evaluate on.
@@ -561,8 +574,10 @@ class ReinforcementLearningTrainer(ABC):
             ``best_episode_return``.
         """
 
+        n_episodes = 1 if environment.deterministic else hp.eval_episodes
+
         returns: list[float] = []
-        for episode in range(hp.eval_episodes):
+        for episode in range(n_episodes):
             env = environment.make()
             observation, _ = env.reset(seed=hp.seed + 10_000 + episode)
             episode_return = 0.0

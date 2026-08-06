@@ -119,12 +119,16 @@ def make_environment(name: str, **kwargs) -> RLEnvironment:
         is_slippery = kwargs.get("is_slippery", False)
         n_states = 16 if map_name == "4x4" else 64
         # Discrete integer observation -> one-hot; 4 discrete actions.
+        # A non-slippery FrozenLake (fixed map, fixed start, deterministic
+        # transitions) is fully deterministic, so greedy evaluation only needs
+        # a single episode.
         return RLEnvironment(
             env_id="FrozenLake-v1",
             n_actions=4,
             n_observation_features=n_states,
             obs_encoder=onehot_observation_encoder(n_states),
             env_kwargs={"map_name": map_name, "is_slippery": is_slippery},
+            deterministic=not is_slippery,
         )
 
     raise ValueError(f"Unknown environment: {name!r}")
@@ -224,7 +228,9 @@ class ReinforcementLearningObjective(Objective):
         training_metrics = genome.metadata["best_training_metrics"]
         validation_metrics = genome.metadata["best_validation_metrics"]
 
-        mean_return = validation_metrics["return_mean"]
+        mean_return = (
+            validation_metrics["return_mean"] + training_metrics["return_mean"]
+        ) / 2.0
 
         # "loss" (lower is better) drives population sorting via compare();
         # the remaining keys mirror the RL fields used by save_circuit's tag
@@ -408,6 +414,13 @@ if __name__ == "__main__":
         map_name=args.map_name,
         is_slippery=args.is_slippery,
     )
+
+    if environment.deterministic and args.eval_episodes > 1:
+        logger.warning(
+            f"environment {environment.env_id} is deterministic, so greedy "
+            f"evaluation yields identical episodes; --eval_episodes="
+            f"{args.eval_episodes} will be reduced to 1 during evaluation."
+        )
 
     trainer = build_trainer(
         args.algo,

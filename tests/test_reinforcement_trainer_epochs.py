@@ -17,11 +17,13 @@ the evaluation/best-snapshot bookkeeping, and the encoder/decoder variety.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import pytest
 
 from src.circuits.circuit import CircuitGenome
+from src.examples.reinforcement_learning import make_environment
 
 from tests.reinforcement_trainer_test_utils import (
     ENCODER_DECODER_PAIRS,
@@ -179,3 +181,57 @@ def test_train_respects_episode_count_from_hyperparameters(trainer_name: str) ->
 
     assert isinstance(genome, CircuitGenome)
     assert len(genome.metadata["training_episode_metrics"]) == 3
+
+
+def test_frozenlake_is_flagged_deterministic_only_when_not_slippery() -> None:
+    """FrozenLake is deterministic unless slippery; other envs are stochastic."""
+
+    assert make_environment("frozenlake").deterministic is True
+    assert make_environment("frozenlake", is_slippery=True).deterministic is False
+    assert make_environment("cartpole").deterministic is False
+
+
+@pytest.mark.parametrize("deterministic", [False, True])
+def test_evaluate_runs_single_episode_for_deterministic_environment(
+    deterministic: bool,
+) -> None:
+    """``evaluate`` runs one episode for a deterministic env, else eval_episodes.
+
+    Greedy evaluation of a deterministic environment yields identical episodes,
+    so only one is run; a stochastic environment runs the full
+    ``eval_episodes`` count.
+
+    Args:
+        deterministic: Whether the environment is marked deterministic.
+    """
+
+    trainer = build_trainer("reinforce")
+    genome, observation_features = build_rl_genome(
+        genome_number=1,
+        target="pennylane",
+        complexity="minimal",
+        encoder_name="linear",
+        decoder_name="linear",
+        trainer=trainer,
+    )
+    genome.initialize_model()
+    hp = trainer.resolve_hyperparameters(genome)
+    assert hp.eval_episodes > 1  # so the two cases differ
+
+    environment = dataclasses.replace(
+        make_test_environment(observation_features), deterministic=deterministic
+    )
+
+    # count how many episodes evaluate() actually rolls (one env.make per episode)
+    episode_count = 0
+    original_make = environment.make
+
+    def counting_make(*args, **kwargs):
+        nonlocal episode_count
+        episode_count += 1
+        return original_make(*args, **kwargs)
+
+    environment.make = counting_make
+    trainer.evaluate(genome, environment, hp)
+
+    assert episode_count == (1 if deterministic else hp.eval_episodes)
