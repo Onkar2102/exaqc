@@ -443,8 +443,13 @@ def cross_entropy_on_logits(prediction: Tensor, target: Tensor) -> Tensor:
     Returns:
         A scalar loss tensor.
     """
+    if prediction.ndim == 1:
+        prediction = prediction.unsqueeze(0)
 
-    return F.cross_entropy(prediction.float().unsqueeze(0), target.long().unsqueeze(0))
+    if target.ndim == 0:
+        target = target.unsqueeze(0)
+
+    return F.cross_entropy(prediction.float(), target.long())
 
 
 def hybrid_named_parameters(genome: CircuitGenome) -> dict[str, torch.nn.Parameter]:

@@ -174,11 +174,13 @@ class ClippedDecoder(Decoder):
                 inputs are being set
         """
 
-        clipped_inputs = inputs[: self.n_outputs]
+        clipped_inputs = inputs[..., : self.n_outputs]
 
         # rescale the inputs as probabilities so they sum to 1.0
         # this may not be needed
-        clipped_inputs = clipped_inputs / (clipped_inputs.sum() + 1e-12)
+        clipped_inputs = clipped_inputs / (
+            clipped_inputs.sum(dim=-1, keepdim=True) + 1e-12
+        )
 
         return clipped_inputs
 
