@@ -652,6 +652,7 @@ class ReinforcementLearningTrainer(ABC):
         best_state = self._clone_hybrid_state(genome)
         best_evaluation = None
         eval_every = max(1, hp.log_every)
+        best_episode = 0
 
         for episode in range(hp.episodes):
             episode_return, info = self.run_update(
@@ -674,6 +675,7 @@ class ReinforcementLearningTrainer(ABC):
                     best_return = evaluation["return_mean"]
                     best_evaluation = evaluation
                     best_state = self._clone_hybrid_state(genome)
+                    best_episode = episode
 
         # restore the best-evaluated weights into the genome
         genome.set_parameters(best_state)
@@ -685,6 +687,7 @@ class ReinforcementLearningTrainer(ABC):
         else:
             train_tail = 0.0
 
+        genome.metadata["best_episode"] = best_episode
         genome.metadata["best_training_metrics"] = {
             "return_mean": train_tail,
             "best_episode_return": (
