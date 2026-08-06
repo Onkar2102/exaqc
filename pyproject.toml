@@ -12,11 +12,16 @@ classifiers = [
 dependencies = [
     "black",
     "flake8",
-    "numpy<2",
+    # qiskit-machine-learning >= 0.9 (the qiskit 2.x API using BaseEstimatorV1/V2)
+    # requires numpy >= 2; pinning numpy < 2 forces pip to fall back to an older
+    # qiskit-machine-learning that does `from qiskit.primitives import
+    # BaseEstimator`, which qiskit 2.x removed -> ImportError. Keep these
+    # bounds in sync so a clean install resolves the qiskit-2.x-compatible set.
+    "numpy>=2",
     "qiskit-aer",
-    "qiskit",
-    "qiskit_algorithms",
-    "qiskit_machine_learning",
+    "qiskit>=2.0",
+    "qiskit_algorithms>=0.4.0",
+    "qiskit_machine_learning>=0.9.0",
     "pennylane",
     "pennylane-qiskit",
     "torch",
