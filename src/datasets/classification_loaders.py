@@ -21,7 +21,6 @@ from torchvision import datasets, transforms
 
 from src.datasets.classification import ClassificationDataset
 
-
 UCI_DATASETS = {
     "iris",
     "wine",
