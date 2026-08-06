@@ -38,25 +38,19 @@ def torch_simplex_crossover(
                 # get the element wise mean of the other tensors
                 tensor_mean = torch.stack(other_tensors).mean(dim=0)
 
-                """
-                print(f"primary tensor: {primary_tensor}")
-                print(f"other tensors: {other_tensors}")
-                print(f"tensor_mean: {tensor_mean}")
-                print(f"r: {r}")
-                """
-
-                child_state_dict[name] = (
-                    r * (tensor_mean - primary_tensor)
-                ) + primary_tensor
-
-                # print(f"child tensor: {child_state_dict[name]}")
+                # copy_ into the child's parameter tensor in place. Assigning
+                # child_state_dict[name] = ... would only rebind the local dict
+                # entry and leave the child module's parameters unchanged.
+                child_state_dict[name].copy_(
+                    (r * (tensor_mean - primary_tensor)) + primary_tensor
+                )
 
             else:
                 # Integer and Boolean buffers, such as BatchNorm's
                 # num_batches_tracked, cannot be averaged.
-                child_state_dict[name] = primary_tensor.clone()
+                child_state_dict[name].copy_(primary_tensor.clone())
 
-        child.load_state_dict(child_state_dict)
+        # child.load_state_dict(child_state_dict)
 
     return child
 

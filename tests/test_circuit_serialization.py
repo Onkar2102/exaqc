@@ -1,10 +1,13 @@
 import json
 import pytest
+import torch
 
 from src.circuits.circuit import CircuitGenome
 from src.circuits.decoder import initialize_decoder
 from src.circuits.encoder import initialize_encoder
 from src.circuits.registers import expand_registers
+
+from tests.supervised_trainer_test_utils import build_classification_genome
 
 
 @pytest.mark.parametrize("target", ["qiskit", "pennylane"])
@@ -102,3 +105,48 @@ def test_all_disabled(target: str):
         assert gate.target == qc.gates[i].target
         assert gate.specs == qc.gates[i].specs
         assert gate.enabled == qc.gates[i].enabled
+
+
+@pytest.mark.parametrize("target", ["qiskit", "pennylane"])
+def test_json_round_trip_restores_tuple_qubits_and_initializes(target: str):
+    """A JSON-serialized genome reloads with tuple qubits and can initialize.
+
+    Regression test for a ``from_dict`` bug: JSON turns each ``(name, index)``
+    qubit tuple into a list, and the qiskit circuit path uses qubits as dict
+    keys. Before the fix, ``from_dict`` of a JSON-loaded genome left them as
+    lists, so ``initialize_model()`` raised ``TypeError: unhashable type:
+    'list'`` for the qiskit target. Pennylane tolerated lists but is covered
+    here as well.
+
+    Args:
+        target: The circuit framework (``"qiskit"`` or ``"pennylane"``).
+    """
+
+    genome, _ = build_classification_genome(
+        genome_number=3,
+        target=target,
+        complexity="shallow",
+        encoder_name="linear",
+        decoder_name="linear",
+        include_parametric=True,
+    )
+
+    # A real JSON round-trip turns the qubit tuples into lists.
+    serialized = json.loads(json.dumps(genome.to_dict()))
+    assert isinstance(serialized["input_qubits"][0], list)
+    assert isinstance(serialized["gates"][0]["qubits"][0], list)
+
+    restored = CircuitGenome.from_dict(serialized)
+
+    # from_dict must restore qubits to hashable tuples everywhere.
+    assert all(isinstance(qubit, tuple) for qubit in restored.input_qubits)
+    assert all(isinstance(qubit, tuple) for qubit in restored.output_qubits)
+    assert all(isinstance(qubit, tuple) for qubit in restored.qubits)
+    assert all(
+        isinstance(qubit, tuple) for gate in restored.gates for qubit in gate.qubits
+    )
+
+    # The step that previously failed for qiskit; also exercise a forward pass.
+    restored.initialize_model()
+    output = restored.forward(torch.zeros(restored.encoder.n_inputs))
+    assert output.shape[-1] == restored.decoder.n_outputs
