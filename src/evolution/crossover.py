@@ -50,7 +50,7 @@ def torch_simplex_crossover(
                 # num_batches_tracked, cannot be averaged.
                 child_state_dict[name].copy_(primary_tensor.clone())
 
-        child.load_state_dict(child_state_dict)
+        # child.load_state_dict(child_state_dict)
 
     return child
 
