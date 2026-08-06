@@ -300,11 +300,20 @@ class CircuitGenome:
         Returns:
             A circuit genome created from a serialized dict of a circuit genome.
         """
+
+        # Qubits are (name, index) tuples in memory, but JSON serialization
+        # turns them into lists. Restore them to tuples so they can be used as
+        # dict keys (e.g., in generate_qiskit_circuit); lists would raise
+        # "unhashable type: 'list'". tuple() is idempotent for already-tuple
+        # qubits, so this is safe for non-JSON round-trips too.
+        input_qubits = [tuple(qubit) for qubit in serialized["input_qubits"]]
+        output_qubits = [tuple(qubit) for qubit in serialized["output_qubits"]]
+
         new_genome = CircuitGenome(
             genome_number=serialized["genome_number"],
             target=serialized["target"],
-            input_qubits=serialized["input_qubits"],
-            output_qubits=serialized["output_qubits"],
+            input_qubits=input_qubits,
+            output_qubits=output_qubits,
             metadata=serialized["metadata"],
         )
         new_genome.fitness = serialized["fitness"]
@@ -314,7 +323,12 @@ class CircuitGenome:
         new_genome.decoder = Decoder.from_dict(serialized["decoder"])
 
         for serialized_gate in serialized["gates"]:
-            gate = Gate.from_dict(serialized_gate)
+            gate = Gate.from_dict(
+                {
+                    **serialized_gate,
+                    "qubits": [tuple(qubit) for qubit in serialized_gate["qubits"]],
+                }
+            )
             new_genome.add_existing_gate(gate)
 
         return new_genome
