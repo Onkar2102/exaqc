@@ -290,7 +290,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "genome_json",
+        "--genome_json",
         type=str,
         help="Path to a genome JSON produced by the RL example script.",
     )

@@ -240,7 +240,6 @@ class SupervisedTrainer:
                 genome.metadata["best_validation_metrics"] = validation_metric_results
                 genome.metadata["best_epoch"] = best_epoch
 
-
                 # get a copy of the current state dict of the hybrid model, this will be
                 # all the weights
                 with torch.no_grad():
