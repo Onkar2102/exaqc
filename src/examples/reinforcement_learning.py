@@ -36,6 +36,7 @@ import sys
 
 import numpy as np
 
+import gymnasium as gym
 from loguru import logger
 
 from src.circuits.circuit import (
@@ -66,6 +67,72 @@ from src.trainer.rl_trainer_registry import TRAINER_REGISTRY
 # ---------------------------------------------------------------------
 
 
+#: Friendly ``--env`` name -> Gymnasium id for the continuous-action
+#: (``Box``) tasks. Pendulum is classic control; the rest are MuJoCo tasks
+#: (require ``gymnasium[mujoco]``). Their observation size, action
+#: dimensionality, and action bounds are read from the environment at build
+#: time by :func:`make_continuous_environment` rather than hardcoded, since
+#: these differ across Gymnasium versions (e.g. Ant/Humanoid observation
+#: sizes).
+CONTINUOUS_ENV_IDS: dict[str, str] = {
+    "pendulum": "Pendulum-v1",
+    "hopper": "Hopper-v5",
+    "halfcheetah": "HalfCheetah-v5",
+    "ant": "Ant-v5",
+    "humanoid": "Humanoid-v5",
+}
+
+#: All environment names understood by :func:`make_environment`, in the order
+#: they are offered on the command line.
+ENV_CHOICES: tuple[str, ...] = (
+    "cartpole",
+    "acrobot",
+    "mountaincar",
+    "frozenlake",
+    *CONTINUOUS_ENV_IDS,
+)
+
+
+def make_continuous_environment(env_id: str, **env_kwargs) -> RLEnvironment:
+    """Builds a continuous-action :class:`RLEnvironment` by probing the env.
+
+    The environment is instantiated once to read its observation size, action
+    dimensionality, and per-dimension action bounds directly from its Gym
+    spaces -- so the ``RLEnvironment`` is always consistent with the installed
+    Gymnasium/MuJoCo version rather than relying on hardcoded dimensions.
+
+    Args:
+        env_id: Gymnasium id of a continuous ``Box``-action environment.
+        **env_kwargs: Extra keyword arguments forwarded to ``gym.make`` (also
+            stored on the returned environment so trainers re-create it
+            identically).
+
+    Returns:
+        A configured continuous :class:`RLEnvironment`.
+    """
+
+    probe = gym.make(env_id, **env_kwargs)
+    try:
+        n_observation_features = int(np.prod(probe.observation_space.shape))
+        action_space = probe.action_space
+        action_dim = int(np.prod(action_space.shape))
+        action_low = np.asarray(action_space.low, dtype=np.float32).reshape(-1)
+        action_high = np.asarray(action_space.high, dtype=np.float32).reshape(-1)
+    finally:
+        probe.close()
+
+    return RLEnvironment(
+        env_id=env_id,
+        n_actions=action_dim,
+        n_observation_features=n_observation_features,
+        obs_encoder=box_observation_encoder(),
+        env_kwargs=env_kwargs or None,
+        continuous=True,
+        action_low=action_low,
+        action_high=action_high,
+    )
+
+
 def make_environment(name: str, **kwargs) -> RLEnvironment:
     """Builds an :class:`RLEnvironment` for one of the supported tasks.
 
@@ -75,8 +142,11 @@ def make_environment(name: str, **kwargs) -> RLEnvironment:
     trainer-ready environment.
 
     Args:
-        name: Environment name (``"cartpole"``, ``"acrobot"``,
-            ``"mountaincar"`` or ``"frozenlake"``).
+        name: Environment name; one of :data:`ENV_CHOICES`. The discrete tasks
+            are ``"cartpole"``, ``"acrobot"``, ``"mountaincar"`` and
+            ``"frozenlake"``; the continuous (``Box``-action) tasks are the
+            keys of :data:`CONTINUOUS_ENV_IDS` (``"pendulum"``, ``"hopper"``,
+            ``"halfcheetah"``, ``"ant"``, ``"humanoid"``).
         **kwargs: Environment-specific options (e.g. ``map_name`` and
             ``is_slippery`` for FrozenLake).
 
@@ -86,6 +156,11 @@ def make_environment(name: str, **kwargs) -> RLEnvironment:
     Raises:
         ValueError: If ``name`` is not a supported environment.
     """
+
+    if name in CONTINUOUS_ENV_IDS:
+        # Continuous Box-action tasks (Pendulum + MuJoCo); only the policy-
+        # gradient trainers (reinforce, actor_critic, ppo) support these.
+        return make_continuous_environment(CONTINUOUS_ENV_IDS[name])
 
     if name == "cartpole":
         # 4 continuous observation features, 2 discrete actions.
@@ -263,7 +338,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument(
         "--env",
-        choices=["cartpole", "acrobot", "mountaincar", "frozenlake"],
+        choices=list(ENV_CHOICES),
         required=True,
     )
     p.add_argument(
@@ -444,6 +519,15 @@ if __name__ == "__main__":
         epsilon_decay=args.epsilon_decay,
     )
 
+    # Value-based trainers (q_learning / sarsa) enumerate discrete actions and
+    # cannot drive a continuous Box-action environment; fail fast with a clear
+    # message rather than deep inside the first weight update.
+    if environment.continuous and not trainer.supports_continuous:
+        p.error(
+            f"algorithm {args.algo!r} does not support the continuous "
+            f"environment {args.env!r}; use reinforce, actor_critic, or ppo."
+        )
+
     objective = ReinforcementLearningObjective(environment=environment, trainer=trainer)
 
     # These become each genome's hyperparameters, so the evolutionary search
@@ -481,10 +565,14 @@ if __name__ == "__main__":
     if args.quantum_input_mode == "u3":
         n_encoder_outputs *= 3
 
+    # The policy occupies environment.n_policy_outputs decoder outputs: one per
+    # action for a discrete space, or a mean + log-std per action dimension for
+    # a continuous space. Size the quantum output register so it has at least as
+    # many features as the policy needs.
     n_output_registers = (
         int(args.output_qubits)
         if args.output_qubits is not None
-        else max(1, int(np.ceil(np.log2(environment.n_actions))))
+        else max(1, int(np.ceil(np.log2(environment.n_policy_outputs))))
     )
     n_decoder_inputs = n_output_registers
     if args.quantum_output_mode == "probs":
@@ -494,7 +582,7 @@ if __name__ == "__main__":
     # output holding the scalar state value, so the value function is part of
     # the genome (evolved by crossover, preserved by serialization) rather
     # than a separate head.
-    n_decoder_outputs = environment.n_actions + trainer.n_value_outputs
+    n_decoder_outputs = environment.n_policy_outputs + trainer.n_value_outputs
 
     # encoder: encoded observation (n_observation_features) -> quantum inputs
     initial_encoder = initialize_encoder(

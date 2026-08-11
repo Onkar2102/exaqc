@@ -33,22 +33,25 @@ import random
 import sys
 
 import numpy as np
-import torch
 
 import gymnasium as gym
 from loguru import logger
 
 from src.circuits.circuit import CircuitGenome
-from src.examples.reinforcement_learning import make_environment
-from src.trainer.reinforcement_trainer import RLEnvironment
+from src.examples.reinforcement_learning import CONTINUOUS_ENV_IDS, make_environment
+from src.trainer.reinforcement_trainer import RLEnvironment, greedy_action
 
 #: Maps a Gymnasium environment id back to the friendly ``--env`` name used by
-#: ``src.examples.reinforcement_learning.make_environment``.
+#: ``src.examples.reinforcement_learning.make_environment``. Covers the
+#: discrete tasks plus every continuous (``Box``-action) task, so a genome
+#: trained on any supported environment can be auto-detected from its recorded
+#: ``fitness["env_id"]``.
 ENV_ID_TO_NAME: dict[str, str] = {
     "CartPole-v1": "cartpole",
     "Acrobot-v1": "acrobot",
     "MountainCar-v0": "mountaincar",
     "FrozenLake-v1": "frozenlake",
+    **{env_id: name for name, env_id in CONTINUOUS_ENV_IDS.items()},
 }
 
 
@@ -140,30 +143,6 @@ def resolve_environment(
     return environment
 
 
-@torch.no_grad()
-def greedy_action(
-    genome: CircuitGenome, environment: RLEnvironment, observation: object
-) -> int:
-    """Selects the greedy action for an observation using the genome policy.
-
-    Mirrors ``ReinforcementLearningTrainer.evaluate``: the circuit output's
-    first ``n_actions`` entries are treated as policy logits (any trailing
-    value output is ignored) and the argmax is taken.
-
-    Args:
-        genome: The initialized genome policy.
-        environment: The environment (provides observation encoding and the
-            action count).
-        observation: A raw environment observation.
-
-    Returns:
-        The selected discrete action index.
-    """
-
-    output = genome.forward(environment.encode(observation))
-    return int(torch.argmax(output[: environment.n_actions]).item())
-
-
 def play_episode(
     genome: CircuitGenome,
     environment: RLEnvironment,
@@ -197,6 +176,8 @@ def play_episode(
         if collect_frames:
             frames.append(np.asarray(gym_env.render()))
 
+        # greedy_action returns the action already in the env's native format:
+        # an int for discrete spaces, a clipped float array for continuous ones.
         action = greedy_action(genome, environment, observation)
         observation, reward, terminated, truncated, _ = gym_env.step(action)
         episode_return += float(reward)

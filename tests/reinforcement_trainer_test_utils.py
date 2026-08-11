@@ -48,8 +48,13 @@ from tests.supervised_trainer_test_utils import (  # noqa: F401
     hybrid_named_parameters,
 )
 
-#: Gymnasium id under which the deterministic test environment is registered.
+#: Gymnasium id under which the discrete deterministic test environment is
+#: registered.
 TEST_ENV_ID: str = "ExaqcTrainerTestEnv-v0"
+
+#: Gymnasium id under which the continuous (``Box``-action) test environment
+#: is registered.
+CONTINUOUS_TEST_ENV_ID: str = "ExaqcTrainerContinuousTestEnv-v0"
 
 #: Trainer algorithm names exercised across the suite (one representative per
 #: distinct algorithm; ``"sarsa"`` shares :class:`QLearningTrainer` with
@@ -59,6 +64,15 @@ TRAINER_NAMES: tuple[str, ...] = (
     "actor_critic",
     "ppo",
     "q_learning",
+)
+
+#: Trainer algorithm names that support continuous (``Box``) action spaces --
+#: the policy-gradient trainers only. The value-based trainer
+#: (``q_learning`` / ``sarsa``) enumerates discrete actions and is excluded.
+CONTINUOUS_TRAINER_NAMES: tuple[str, ...] = (
+    "reinforce",
+    "actor_critic",
+    "ppo",
 )
 
 #: encoder_name/decoder_name pairs used to exercise trainable vs. stateless
@@ -76,6 +90,10 @@ DEFAULT_OBSERVATION_FEATURES: int = 4
 
 #: Number of discrete actions the test environment exposes.
 DEFAULT_N_ACTIONS: int = 2
+
+#: Action dimensionality the continuous test environment exposes (the number
+#: of ``Box`` action components).
+DEFAULT_ACTION_DIM: int = 2
 
 #: A deliberately tiny hyperparameter configuration so the whole suite runs
 #: quickly. Circuit forward/backward passes are the expensive part, so episode
@@ -182,11 +200,46 @@ class _DeterministicTestEnv(gym.Env):
         return self._observation(), 1.0, terminated, False, {}
 
 
+class _ContinuousTestEnv(_DeterministicTestEnv):
+    """A tiny deterministic Gymnasium environment with a ``Box`` action space.
+
+    Identical to :class:`_DeterministicTestEnv` (same deterministic
+    observations, constant per-step reward, and fixed episode length) except
+    the action space is a continuous ``Box`` of dimensionality ``action_dim``.
+    The sampled action value is ignored, so the environment stays fully
+    deterministic while still exercising the continuous (Gaussian) policy path
+    end to end.
+
+    Args:
+        n_observation_features: Length of the observation vector.
+        action_dim: Number of continuous action components.
+        max_steps: Steps before the episode terminates.
+    """
+
+    def __init__(
+        self,
+        n_observation_features: int = DEFAULT_OBSERVATION_FEATURES,
+        action_dim: int = DEFAULT_ACTION_DIM,
+        max_steps: int = 5,
+    ):
+        super().__init__(
+            n_observation_features=n_observation_features,
+            n_actions=action_dim,
+            max_steps=max_steps,
+        )
+        self.action_dim = int(action_dim)
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, shape=(self.action_dim,), dtype=np.float32
+        )
+
+
 def _register_test_environment() -> None:
-    """Registers :class:`_DeterministicTestEnv` with Gymnasium exactly once."""
+    """Registers the discrete and continuous test environments exactly once."""
 
     if TEST_ENV_ID not in gym.registry:
         gym.register(id=TEST_ENV_ID, entry_point=_DeterministicTestEnv)
+    if CONTINUOUS_TEST_ENV_ID not in gym.registry:
+        gym.register(id=CONTINUOUS_TEST_ENV_ID, entry_point=_ContinuousTestEnv)
 
 
 # Register on import so ``gym.make(TEST_ENV_ID, ...)`` works everywhere below.
@@ -230,15 +283,20 @@ def build_rl_genome(
     trainer: ReinforcementLearningTrainer,
     *,
     n_actions: int = DEFAULT_N_ACTIONS,
+    continuous: bool = False,
     include_parametric: bool = True,
 ) -> tuple[CircuitGenome, int]:
     """Builds an RL-ready genome sized for the given trainer and environment.
 
-    The decoder is sized to ``n_actions + trainer.n_value_outputs`` so that
-    advantage methods (actor-critic, PPO) read their scalar state value from
-    the extra decoder output. RL hyperparameters are merged into
-    ``genome.hyperparameters`` (on top of the quantum input/output modes the
-    genome needs) so the trainer resolves them per genome.
+    The decoder is sized to ``n_policy_outputs + trainer.n_value_outputs`` so
+    that advantage methods (actor-critic, PPO) read their scalar state value
+    from the extra decoder output. For a discrete action space the policy
+    occupies ``n_actions`` outputs; for a continuous one it occupies
+    ``2 * n_actions`` (a mean and a log-std per action dimension), mirroring
+    :attr:`~src.trainer.reinforcement_trainer.RLEnvironment.n_policy_outputs`.
+    RL hyperparameters are merged into ``genome.hyperparameters`` (on top of
+    the quantum input/output modes the genome needs) so the trainer resolves
+    them per genome.
 
     Args:
         genome_number: Unique genome identifier.
@@ -248,7 +306,11 @@ def build_rl_genome(
         decoder_name: Either ``"clipped"`` or ``"linear"``.
         trainer: The trainer that will consume the genome (its
             ``n_value_outputs`` sets the number of extra decoder outputs).
-        n_actions: Number of discrete actions.
+        n_actions: Number of discrete actions, or (when ``continuous``) the
+            continuous action dimensionality.
+        continuous: Whether the target action space is continuous (sizes the
+            policy at ``2 * n_actions`` decoder outputs instead of
+            ``n_actions``).
         include_parametric: Whether the circuit has trainable gates.
 
     Returns:
@@ -257,6 +319,7 @@ def build_rl_genome(
         environment must produce (i.e. the genome encoder's input size).
     """
 
+    n_policy_outputs = 2 * n_actions if continuous else n_actions
     genome, observation_features = build_classification_genome(
         genome_number=genome_number,
         target=target,
@@ -264,7 +327,7 @@ def build_rl_genome(
         encoder_name=encoder_name,
         decoder_name=decoder_name,
         include_parametric=include_parametric,
-        n_classes=n_actions + trainer.n_value_outputs,
+        n_classes=n_policy_outputs + trainer.n_value_outputs,
         n_features=DEFAULT_OBSERVATION_FEATURES,
     )
     genome.hyperparameters.update(rl_hyperparameters())
@@ -302,6 +365,48 @@ def make_test_environment(
             "n_actions": n_actions,
             "max_steps": resolved_max_steps,
         },
+    )
+
+
+def make_continuous_test_environment(
+    n_observation_features: int,
+    *,
+    action_dim: int = DEFAULT_ACTION_DIM,
+    max_steps: int | None = None,
+) -> RLEnvironment:
+    """Builds a continuous :class:`RLEnvironment` backed by the ``Box`` test env.
+
+    The returned environment mirrors :func:`make_test_environment` but exposes
+    a continuous action space, so it exercises the Gaussian-policy path (mean +
+    log-std read from the decoder, ``Normal`` sampling, action clipping)
+    without requiring MuJoCo.
+
+    Args:
+        n_observation_features: Observation length the genome's encoder
+            expects (as returned by :func:`build_rl_genome`).
+        action_dim: Continuous action dimensionality.
+        max_steps: Episode length; defaults to the tiny test configuration.
+
+    Returns:
+        A configured continuous :class:`RLEnvironment`.
+    """
+
+    resolved_max_steps = int(
+        max_steps if max_steps is not None else _RL_CONFIG["max_steps"]
+    )
+    return RLEnvironment(
+        env_id=CONTINUOUS_TEST_ENV_ID,
+        n_actions=action_dim,
+        n_observation_features=n_observation_features,
+        obs_encoder=box_observation_encoder(),
+        env_kwargs={
+            "n_observation_features": n_observation_features,
+            "action_dim": action_dim,
+            "max_steps": resolved_max_steps,
+        },
+        continuous=True,
+        action_low=np.full(action_dim, -1.0, dtype=np.float32),
+        action_high=np.full(action_dim, 1.0, dtype=np.float32),
     )
 
 
