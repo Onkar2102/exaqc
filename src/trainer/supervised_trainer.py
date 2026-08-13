@@ -219,10 +219,24 @@ class SupervisedTrainer:
 
             return
 
-        optimizer = torch.optim.Adam(
+        # optimizer = torch.optim.Adam(
+        #     genome.hybrid_model.parameters(),
+        #     lr=learning_rate,
+        #     weight_decay=float(hyperparameters.get("weight_decay", 0.0)),
+        # )
+
+        optimizer = torch.optim.AdamW(
             genome.hybrid_model.parameters(),
             lr=learning_rate,
-            weight_decay=float(hyperparameters.get("weight_decay", 0.0)),
+            weight_decay=float(hyperparameters.get("weight_decay", 5e-04)),
+        )
+
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=0.5,
+            patience=3,
+            min_lr=1e-6,
         )
 
         best_loss = math.inf
@@ -267,6 +281,8 @@ class SupervisedTrainer:
             # TODO: try using the average of validation and training loss for fitness
             validation_loss = validation_metric_results["loss"]
             training_loss = training_metric_results["loss"]
+
+            scheduler.step(validation_loss)
 
             avg_loss = (validation_loss + training_loss) / 2.0
 

@@ -1,8 +1,8 @@
 #!/bin/bash -l
 #SBATCH -J exaqc_cifar10
 #SBATCH -t 3-00:00:00
-#SBATCH -o ./outs/cifar10/output.o
-#SBATCH -e ./logs/cifar10/error.e
+#SBATCH -o ./outs/cifar10/output_q6.o
+#SBATCH -e ./logs/cifar10/error_q6.e
 #SBATCH -A cps -p tier3
 #SBATCH --nodes=1
 #SBATCH --ntasks=6
@@ -16,7 +16,7 @@ spack env activate default-ml-x86_64-25052701
 source .venv/bin/activate
 
 DATASET="cifar10"
-QUBITS=4
+QUBITS=6
 ENCODING="cnn"
 BATCH_SIZE=32
 
@@ -38,7 +38,7 @@ srun python3.11 -m src.examples.classification \
     --target pennylane \
     --encoding $ENCODING \
     --decoding linear \
-    --encoder_config configs/mnist_cnn_2.json \
+    --encoder_config configs/mnist_cnn_3.json \
     --input_qubits $QUBITS \
     --output_qubits $QUBITS \
     --quantum_input_mode ry \
@@ -53,6 +53,6 @@ srun python3.11 -m src.examples.classification \
     --mutation_strategy uniform 1 5 \
     --parent_strategy uniform 2 5 \
     --seed 42 \
-    --out_dir artifacts/${DATASET}_${ENCODING}_2 \
+    --out_dir artifacts/${DATASET}_${ENCODING}_3 \
     steady_state \
     --max_population_size 30
