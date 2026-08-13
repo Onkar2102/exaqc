@@ -23,7 +23,8 @@ import math
 import pytest
 
 from src.circuits.circuit import CircuitGenome
-from src.examples.reinforcement_learning import make_environment
+
+# from src.examples.reinforcement_learning import make_environment
 
 from tests.reinforcement_trainer_test_utils import (
     ENCODER_DECODER_PAIRS,
@@ -183,8 +184,24 @@ def test_train_respects_episode_count_from_hyperparameters(trainer_name: str) ->
     assert len(genome.metadata["training_episode_metrics"]) == 3
 
 
-def test_frozenlake_is_flagged_deterministic_only_when_not_slippery() -> None:
+def test_frozenlake_is_flagged_deterministic_only_when_not_slippery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """FrozenLake is deterministic unless slippery; other envs are stochastic."""
+
+    import sys
+    import types
+
+    mock_master_worker = types.ModuleType("src.evolution.master_worker")
+    mock_master_worker.master_worker = lambda *args, **kwargs: None
+
+    monkeypatch.setitem(
+        sys.modules,
+        "src.evolution.master_worker",
+        mock_master_worker,
+    )
+
+    from src.examples.reinforcement_learning import make_environment
 
     assert make_environment("frozenlake").deterministic is True
     assert make_environment("frozenlake", is_slippery=True).deterministic is False

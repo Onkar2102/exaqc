@@ -351,6 +351,9 @@ def test_main_builds_cnn_encoder_for_image_data(
     }
 
 
+@pytest.mark.skip(
+    reason="No longer needed since linear encoder can used with image datasets"
+)
 def test_main_rejects_non_cnn_encoder_for_image_data(
     image_loaders: tuple[DataLoader, DataLoader],
     monkeypatch: pytest.MonkeyPatch,

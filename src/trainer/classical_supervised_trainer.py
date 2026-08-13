@@ -96,11 +96,7 @@ class ClassicalSupervisedTrainer:
                 )
 
         return {
-            "loss": (
-                total_loss / total_samples
-                if total_samples
-                else float("nan")
-            ),
+            "loss": (total_loss / total_samples if total_samples else float("nan")),
             "mean_class_accuracy": metric.calculate(),
         }
 
@@ -131,16 +127,12 @@ class ClassicalSupervisedTrainer:
         model.to(self.device)
 
         training_loss = torch.nn.CrossEntropyLoss(
-            weight=self.training_dataloader.label_weights.to(
-                self.device
-            ),
+            weight=self.training_dataloader.label_weights.to(self.device),
             reduction="mean",
             label_smoothing=label_smoothing,
         )
         validation_loss = torch.nn.CrossEntropyLoss(
-            weight=self.validation_dataloader.label_weights.to(
-                self.device
-            ),
+            weight=self.validation_dataloader.label_weights.to(self.device),
             reduction="mean",
         )
 
@@ -171,9 +163,7 @@ class ClassicalSupervisedTrainer:
         for epoch in range(epochs):
             model.train()
 
-            train_metric = MeanClassAccuracy(
-                n_labels=self.training_dataloader.n_labels
-            )
+            train_metric = MeanClassAccuracy(n_labels=self.training_dataloader.n_labels)
             train_loss_sum = 0.0
             train_samples = 0
 
@@ -199,9 +189,7 @@ class ClassicalSupervisedTrainer:
                 optimizer.step()
 
                 batch_size = int(y_batch.shape[0])
-                train_loss_sum += (
-                    float(loss.detach().item()) * batch_size
-                )
+                train_loss_sum += float(loss.detach().item()) * batch_size
                 train_samples += batch_size
 
                 train_metric.accumulate(
@@ -236,9 +224,7 @@ class ClassicalSupervisedTrainer:
                 validation_metrics,
             )
 
-            current_validation_loss = float(
-                validation_metrics["loss"]
-            )
+            current_validation_loss = float(validation_metrics["loss"])
 
             if current_validation_loss < best_validation_loss:
                 best_validation_loss = current_validation_loss
@@ -263,9 +249,7 @@ class ClassicalSupervisedTrainer:
             model,
             self.training_dataloader,
             torch.nn.CrossEntropyLoss(
-                weight=self.training_dataloader.label_weights.to(
-                    self.device
-                ),
+                weight=self.training_dataloader.label_weights.to(self.device),
                 reduction="mean",
             ),
         )
@@ -285,9 +269,7 @@ class ClassicalSupervisedTrainer:
 
         if self.testing_dataloader is not None:
             testing_loss = torch.nn.CrossEntropyLoss(
-                weight=self.testing_dataloader.label_weights.to(
-                    self.device
-                ),
+                weight=self.testing_dataloader.label_weights.to(self.device),
                 reduction="mean",
             )
             results["testing_metrics"] = self._evaluate_loader(
@@ -316,7 +298,6 @@ class ClassicalSupervisedTrainer:
         )
 
         state_dict = {
-            name: tensor.detach().cpu()
-            for name, tensor in model.state_dict().items()
+            name: tensor.detach().cpu() for name, tensor in model.state_dict().items()
         }
         torch.save(state_dict, output_path)

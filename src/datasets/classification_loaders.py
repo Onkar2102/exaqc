@@ -190,9 +190,7 @@ def _image_transform(dataset: str, training: bool = False) -> transforms.Compose
         ]
     )
 
-    return transforms.Compose(
-        transform_list
-    )
+    return transforms.Compose(transform_list)
 
 
 def _load_image_training_dataset(
@@ -309,13 +307,9 @@ def get_image_dataloaders(
         training_transform=False,
     )
 
-    labels = _extract_targets(
-        training_full_dataset
-    )
+    labels = _extract_targets(training_full_dataset)
 
-    all_indices = np.arange(
-        len(training_full_dataset)
-    )
+    all_indices = np.arange(len(training_full_dataset))
 
     training_indices, validation_indices = train_test_split(
         all_indices,

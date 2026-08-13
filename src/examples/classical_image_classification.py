@@ -44,9 +44,7 @@ def load_model_config(path: str | None) -> dict[str, Any]:
         config = json.load(file)
 
     if not isinstance(config, dict):
-        raise ValueError(
-            "Model configuration must contain a JSON object."
-        )
+        raise ValueError("Model configuration must contain a JSON object.")
 
     return config
 
@@ -209,9 +207,7 @@ def main() -> None:
         data_dir=args.data_dir,
         testing_samples=args.testing_samples,
         batch_size=(
-            args.test_batch_size
-            or args.validation_batch_size
-            or args.batch_size
+            args.test_batch_size or args.validation_batch_size or args.batch_size
         ),
         download=args.download_dataset,
         num_workers=args.num_workers,

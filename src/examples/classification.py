@@ -414,11 +414,7 @@ def main() -> None:
     device = (
         args.device
         if args.device is not None
-        else (
-            "cuda"
-            if torch.cuda.is_available()
-            else "cpu"
-        )
+        else ("cuda" if torch.cuda.is_available() else "cpu")
     )
 
     logger.info("Using PyTorch device: {}", device)

@@ -6,7 +6,6 @@ from typing import Callable
 import torch
 from torchvision import models
 
-
 TORCHVISION_IMAGE_MODELS = (
     "resnet18",
     "resnet34",
@@ -62,9 +61,7 @@ def create_torchvision_image_model(
         ValueError: If the model name or input shape is unsupported.
     """
     if len(input_shape) != 3:
-        raise ValueError(
-            "input_shape must contain channels, height, and width."
-        )
+        raise ValueError("input_shape must contain channels, height, and width.")
 
     input_channels = int(input_shape[0])
 
@@ -241,9 +238,7 @@ def _create_base_model(
     try:
         builder, weights = builders[model_name]
     except KeyError as error:
-        raise ValueError(
-            f"Unsupported Torchvision model: {model_name}"
-        ) from error
+        raise ValueError(f"Unsupported Torchvision model: {model_name}") from error
 
     return builder(weights=weights)
 
@@ -292,9 +287,7 @@ def _replace_classifier(
         )
 
     else:
-        raise ValueError(
-            f"Classifier replacement not implemented for {model_name}."
-        )
+        raise ValueError(f"Classifier replacement not implemented for {model_name}.")
 
     return model
 
@@ -367,9 +360,7 @@ def _replace_input_channels(
         )
 
     else:
-        raise ValueError(
-            f"Input-channel adaptation not implemented for {model_name}."
-        )
+        raise ValueError(f"Input-channel adaptation not implemented for {model_name}.")
 
     return model
 

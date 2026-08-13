@@ -75,9 +75,8 @@ class SupervisedTrainer:
         if isinstance(self.validation_loss_function, torch.nn.Module):
             self.validation_loss_function.to(self.device)
 
-        if (
-            self.testing_loss_function is not None
-            and isinstance(self.testing_loss_function, torch.nn.Module)
+        if self.testing_loss_function is not None and isinstance(
+            self.testing_loss_function, torch.nn.Module
         ):
             self.testing_loss_function.to(self.device)
 

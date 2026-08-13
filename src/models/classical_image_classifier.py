@@ -10,7 +10,6 @@ from src.models.torchvision_image_classifier import (
     create_torchvision_image_model,
 )
 
-
 CLASSICAL_IMAGE_MODELS = (
     "linear",
     "mlp",
@@ -159,20 +158,14 @@ class MLPClassifier(torch.nn.Module):
         self.n_classes = int(n_classes)
         self.hidden_layers = tuple(int(value) for value in hidden_layers)
 
-        layers: list[torch.nn.Module] = [
-            torch.nn.Flatten(start_dim=1)
-        ]
+        layers: list[torch.nn.Module] = [torch.nn.Flatten(start_dim=1)]
         current_size = self.n_inputs
 
         for hidden_size in self.hidden_layers:
             if hidden_size <= 0:
-                raise ValueError(
-                    "All hidden layer dimensions must be positive."
-                )
+                raise ValueError("All hidden layer dimensions must be positive.")
 
-            layers.append(
-                torch.nn.Linear(current_size, hidden_size)
-            )
+            layers.append(torch.nn.Linear(current_size, hidden_size))
             layers.append(_activation(activation))
 
             if dropout > 0.0:
@@ -180,9 +173,7 @@ class MLPClassifier(torch.nn.Module):
 
             current_size = hidden_size
 
-        layers.append(
-            torch.nn.Linear(current_size, self.n_classes)
-        )
+        layers.append(torch.nn.Linear(current_size, self.n_classes))
 
         self.model = torch.nn.Sequential(*layers)
         self._initialize_parameters()
@@ -238,22 +229,16 @@ class CNNClassifier(torch.nn.Module):
                 "CNN input_shape must contain channels, height, and width."
             )
         if not conv_blocks:
-            raise ValueError(
-                "CNNClassifier requires at least one convolution block."
-            )
+            raise ValueError("CNNClassifier requires at least one convolution block.")
         if len(adaptive_pool_size) != 2:
-            raise ValueError(
-                "adaptive_pool_size must contain height and width."
-            )
+            raise ValueError("adaptive_pool_size must contain height and width.")
         if not 0.0 <= dropout < 1.0:
             raise ValueError("dropout must be in [0, 1).")
 
         self.input_shape = tuple(int(value) for value in input_shape)
         self.n_classes = int(n_classes)
         self.conv_blocks_config = [dict(block) for block in conv_blocks]
-        self.adaptive_pool_size = tuple(
-            int(value) for value in adaptive_pool_size
-        )
+        self.adaptive_pool_size = tuple(int(value) for value in adaptive_pool_size)
         self.fully_connected_layers = tuple(
             int(value) for value in fully_connected_layers
         )
@@ -283,9 +268,7 @@ class CNNClassifier(torch.nn.Module):
             batch_norm = bool(block.get("batch_norm", True))
 
             if out_channels <= 0:
-                raise ValueError(
-                    f"Conv block {index} has invalid out_channels."
-                )
+                raise ValueError(f"Conv block {index} has invalid out_channels.")
 
             layers.append(
                 torch.nn.Conv2d(
@@ -302,9 +285,7 @@ class CNNClassifier(torch.nn.Module):
             if batch_norm:
                 layers.append(torch.nn.BatchNorm2d(out_channels))
 
-            layers.append(
-                _activation(str(block.get("activation", "relu")))
-            )
+            layers.append(_activation(str(block.get("activation", "relu"))))
 
             block_dropout = float(block.get("dropout", 0.0))
             if block_dropout > 0.0:
@@ -316,9 +297,7 @@ class CNNClassifier(torch.nn.Module):
 
             in_channels = out_channels
 
-        layers.append(
-            torch.nn.AdaptiveAvgPool2d(self.adaptive_pool_size)
-        )
+        layers.append(torch.nn.AdaptiveAvgPool2d(self.adaptive_pool_size))
 
         return torch.nn.Sequential(*layers), in_channels
 
@@ -338,19 +317,13 @@ class CNNClassifier(torch.nn.Module):
         pooled_height, pooled_width = self.adaptive_pool_size
         current_size = final_channels * pooled_height * pooled_width
 
-        layers: list[torch.nn.Module] = [
-            torch.nn.Flatten(start_dim=1)
-        ]
+        layers: list[torch.nn.Module] = [torch.nn.Flatten(start_dim=1)]
 
         for hidden_size in self.fully_connected_layers:
             if hidden_size <= 0:
-                raise ValueError(
-                    "Fully connected layer dimensions must be positive."
-                )
+                raise ValueError("Fully connected layer dimensions must be positive.")
 
-            layers.append(
-                torch.nn.Linear(current_size, hidden_size)
-            )
+            layers.append(torch.nn.Linear(current_size, hidden_size))
             layers.append(torch.nn.ReLU())
 
             if self.dropout > 0.0:
@@ -358,9 +331,7 @@ class CNNClassifier(torch.nn.Module):
 
             current_size = hidden_size
 
-        layers.append(
-            torch.nn.Linear(current_size, self.n_classes)
-        )
+        layers.append(torch.nn.Linear(current_size, self.n_classes))
         return torch.nn.Sequential(*layers)
 
     def _initialize_parameters(self) -> None:
@@ -427,12 +398,8 @@ def create_classical_image_model(
                 "hidden_layers",
                 (512, 128),
             ),
-            activation=str(
-                model_config.get("activation", "relu")
-            ),
-            dropout=float(
-                model_config.get("dropout", 0.0)
-            ),
+            activation=str(model_config.get("activation", "relu")),
+            dropout=float(model_config.get("dropout", 0.0)),
         )
 
     if model_name == "cnn":
@@ -474,9 +441,7 @@ def create_classical_image_model(
                 "fully_connected_layers",
                 (128,),
             ),
-            dropout=float(
-                model_config.get("dropout", 0.0)
-            ),
+            dropout=float(model_config.get("dropout", 0.0)),
         )
 
     if model_name in TORCHVISION_IMAGE_MODELS:
@@ -484,12 +449,8 @@ def create_classical_image_model(
             model_name=model_name,
             input_shape=input_shape,
             n_classes=n_classes,
-            pretrained=bool(
-                model_config.get("pretrained", False)
-            ),
-            small_image_stem=bool(
-                model_config.get("small_image_stem", True)
-            ),
+            pretrained=bool(model_config.get("pretrained", False)),
+            small_image_stem=bool(model_config.get("small_image_stem", True)),
         )
 
     raise ValueError(
