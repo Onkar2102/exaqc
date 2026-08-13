@@ -25,6 +25,7 @@ class SupervisedTrainer:
         metrics: dict[str, Any],
         testing_dataloader: DataLoader | None = None,
         testing_loss_function: Callable[[Tensor, Tensor], Tensor] | None = None,
+        device: str | None = None,
     ) -> None:
         """
         This creates a SupervisedTrainer object which can be (re)used to train circuit
@@ -60,6 +61,25 @@ class SupervisedTrainer:
             else validation_loss_function
         )
         self.metrics = metrics
+
+        self.device = torch.device(
+            device
+            if device is not None
+            else ("cuda" if torch.cuda.is_available() else "cpu")
+        )
+
+        # Move module-based loss functions and their weights to the same device.
+        if isinstance(self.training_loss_function, torch.nn.Module):
+            self.training_loss_function.to(self.device)
+
+        if isinstance(self.validation_loss_function, torch.nn.Module):
+            self.validation_loss_function.to(self.device)
+
+        if (
+            self.testing_loss_function is not None
+            and isinstance(self.testing_loss_function, torch.nn.Module)
+        ):
+            self.testing_loss_function.to(self.device)
 
     def get_metrics(
         self,
@@ -100,6 +120,9 @@ class SupervisedTrainer:
         with torch.set_grad_enabled(is_training):
             for batch_index, (x_batch, y_batch) in enumerate(dataloader):
                 logger.debug("batch: {} / {}", batch_index, len(dataloader))
+
+                x_batch = x_batch.to(self.device)
+                y_batch = y_batch.to(self.device)
 
                 if is_training:
                     optimizer.zero_grad(set_to_none=True)
@@ -154,6 +177,7 @@ class SupervisedTrainer:
                 self.circuit field so it can be trained with pytorch.
         """
         genome.initialize_model()
+        genome.hybrid_model.to(self.device)
 
         hyperparameters = genome.hyperparameters
         learning_rate = float(hyperparameters["learning_rate"])
@@ -166,6 +190,7 @@ class SupervisedTrainer:
         n_trainable_parameters = sum(
             p.numel() for p in genome.hybrid_model.parameters() if p.requires_grad
         )
+        genome.metadata["n_trainable_parameters"] = n_trainable_parameters
 
         logger.debug(f"hybrid model n trainable parameters: {n_trainable_parameters}")
 
@@ -205,7 +230,7 @@ class SupervisedTrainer:
         best_epoch = 0
         improvement_cutoff = int(hyperparameters.get("improvement_cutoff", 2))
         best_parameters = {
-            name: tensor.detach().clone()
+            name: tensor.detach().cpu().clone()
             for name, tensor in genome.hybrid_model.state_dict().items()
         }
 
@@ -258,7 +283,7 @@ class SupervisedTrainer:
                 # all the weights
                 with torch.no_grad():
                     best_parameters = {
-                        name: tensor.detach().clone()
+                        name: tensor.detach().cpu().clone()
                         for name, tensor in (genome.hybrid_model.state_dict().items())
                     }
             elif epoch - best_epoch > improvement_cutoff:
