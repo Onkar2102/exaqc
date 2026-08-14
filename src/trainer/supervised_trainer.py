@@ -126,6 +126,18 @@ class SupervisedTrainer:
                 if is_training:
                     optimizer.zero_grad(set_to_none=True)
 
+                    genome.sample_innovation_dropout(
+                        float(
+                            genome.hyperparameters.get(
+                                "quantum_dropout_rate",
+                                0.0,
+                            )
+                        )
+                    )
+                else:
+                    # Validation/test always uses the complete evolved circuit.
+                    genome.clear_innovation_dropout()
+
                 predictions = genome.forward(x_batch)
 
                 if predictions.ndim != 2:
@@ -154,6 +166,8 @@ class SupervisedTrainer:
                     for prediction, target in zip(predictions, y_batch):
                         for metric in self.metrics.values():
                             metric.accumulate(prediction.float(), target.long())
+
+        genome.clear_innovation_dropout()
 
         metric_results: dict[str, Any] = {
             "loss": (total_loss / total_samples if total_samples else float("nan"))
