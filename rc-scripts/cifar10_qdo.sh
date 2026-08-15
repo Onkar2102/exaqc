@@ -44,7 +44,7 @@ srun python3.11 -m src.examples.classification \
     --output_qubits $QUBITS \
     --quantum_input_mode ry \
     --quantum_output_mode probs \
-    --quantum_dropout_rate 0.2 \
+    --quantum_dropout_rate 0.05 \
     --device cuda \
     --batch_size $BATCH_SIZE \
     --validation_batch_size $BATCH_SIZE \
