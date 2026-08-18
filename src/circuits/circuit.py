@@ -105,7 +105,8 @@ class CircuitGenome:
 
         # Temporary training-only quantum dropout mask.
         # Gate innovation numbers in this set are skipped during the forward pass.
-        self.dropout_innovations: set[int] = set()
+        self.dropout_gate_innovations: set[int] = set()
+        self.dropout_qubits: set[tuple[str, int]] = set()
 
     def n_quantum_inputs(self) -> int:
         """
@@ -732,7 +733,7 @@ class CircuitGenome:
                 # Dropout is temporary and only affects this forward pass.
                 if (
                     gate.enabled
-                    and gate.innovation_number not in self.dropout_innovations
+                    and not self.is_gate_dropped(gate)
                 ):
                     gate.add_to_pennylane_circuit(
                         self.qubits, weights=weights, offset=offset
@@ -826,7 +827,7 @@ class CircuitGenome:
             # Dropout is temporary and only affects this forward pass.
             if (
                 gate.enabled
-                and gate.innovation_number not in self.dropout_innovations
+                and not self.is_gate_dropped(gate)
             ):
                 gate.add_to_qiskit_circuit(
                     register_dict, circuit, self.weight_vector, offset
@@ -993,62 +994,18 @@ class CircuitGenome:
             logger.warning(f"Could not draw circuit: {e}")
 
 
-    def sample_innovation_dropout(
-        self,
-        dropout_rate: float,
-    ) -> None:
-        """Samples an innovation-aware quantum circuit dropout mask.
-
-        Newer gates, as determined by their innovation-number rank, receive
-        a larger dropout probability than older gates. The genome itself is
-        not modified; dropped innovations are stored temporarily and are
-        skipped only during circuit execution.
-
-        Args:
-            dropout_rate: Average target probability of dropping an enabled
-                quantum gate. Must be between 0 and 1.
-        """
-        if not 0.0 <= dropout_rate <= 1.0:
-            raise ValueError(
-                f"dropout_rate must be between 0 and 1, received {dropout_rate}."
-            )
-
-        self.dropout_innovations.clear()
-
-        if dropout_rate == 0.0:
-            return
-
-        enabled_gates = [gate for gate in self.gates if gate.enabled]
-
-        if len(enabled_gates) <= 1:
-            return
-
-        # Innovation number naturally represents when the structural
-        # innovation entered the evolutionary search. Rank instead of using
-        # the absolute number so the probability does not depend on how long
-        # EXAQC has been running.
-        sorted_gates = sorted(
-            enabled_gates,
-            key=lambda gate: gate.innovation_number,
-        )
-
-        n_gates = len(sorted_gates)
-
-        for rank, gate in enumerate(sorted_gates):
-            normalized_rank = rank / (n_gates - 1)
-
-            # Oldest innovation:  0.5 * dropout_rate
-            # Newest innovation:  1.5 * dropout_rate
-            gate_dropout_rate = dropout_rate * (
-                0.5 + normalized_rank
-            )
-
-            gate_dropout_rate = min(gate_dropout_rate, 1.0)
-
-            if torch.rand(1).item() < gate_dropout_rate:
-                self.dropout_innovations.add(gate.innovation_number)
+    def clear_quantum_dropout(self) -> None:
+        """Clears temporary quantum dropout masks."""
+        self.dropout_gate_innovations.clear()
+        self.dropout_qubits.clear()
 
 
-    def clear_innovation_dropout(self) -> None:
-        """Clears all temporary innovation dropout masks."""
-        self.dropout_innovations.clear()
+    def is_gate_dropped(self, gate) -> bool:
+        """Returns whether a gate is dropped for the current forward pass."""
+        if gate.innovation_number in self.dropout_gate_innovations:
+            return True
+
+        if not set(gate.qubits).isdisjoint(self.dropout_qubits):
+            return True
+
+        return False

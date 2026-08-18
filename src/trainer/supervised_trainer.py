@@ -11,6 +11,13 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
 from src.circuits.circuit import CircuitGenome
+from src.dropout.quantum_dropout import (
+    gate_dropout,
+    rotation_dropout,
+    entangling_dropout,
+    qubit_dropout,
+    innovation_dropout,
+)
 
 
 class SupervisedTrainer:
@@ -80,6 +87,73 @@ class SupervisedTrainer:
         ):
             self.testing_loss_function.to(self.device)
 
+    def _apply_quantum_dropout(self, genome) -> None:
+        """Samples and applies the configured quantum dropout strategy.
+        
+        Args:
+            genome: The CircuitGenome on which to apply dropout
+
+        Returns: 
+            None
+        """
+        genome.clear_quantum_dropout()
+
+        dropout_type = genome.hyperparameters.get(
+            "quantum_dropout_type",
+            "none",
+        )
+
+        dropout_rate = float(
+            genome.hyperparameters.get(
+                "quantum_dropout_rate",
+                0.0,
+            )
+        )
+
+        if dropout_rate == 0.0 or dropout_type == "none":
+            return
+
+        if dropout_type == "gate":
+            genome.dropout_gate_innovations = gate_dropout(
+                genome.gates,
+                dropout_rate,
+            )
+
+        elif dropout_type == "rotation":
+            genome.dropout_gate_innovations = rotation_dropout(
+                genome.gates,
+                dropout_rate,
+            )
+
+        elif dropout_type == "entangling":
+            genome.dropout_gate_innovations = entangling_dropout(
+                genome.gates,
+                dropout_rate,
+            )
+
+        elif dropout_type == "qubit":
+            genome.dropout_qubits = qubit_dropout(
+                genome,
+                dropout_rate,
+            )
+
+        elif dropout_type == "innovation":
+            genome.dropout_gate_innovations = innovation_dropout(
+                genome.gates,
+                dropout_rate,
+                innovation_strength=float(
+                    genome.hyperparameters.get(
+                        "quantum_dropout_innovation_strength",
+                        0.5,
+                    )
+                ),
+            )
+
+        else:
+            raise ValueError(
+                f"Unknown quantum dropout type: {dropout_type}"
+            )
+
     def get_metrics(
         self,
         genome: CircuitGenome,
@@ -126,17 +200,10 @@ class SupervisedTrainer:
                 if is_training:
                     optimizer.zero_grad(set_to_none=True)
 
-                    genome.sample_innovation_dropout(
-                        float(
-                            genome.hyperparameters.get(
-                                "quantum_dropout_rate",
-                                0.0,
-                            )
-                        )
-                    )
+                    self._apply_quantum_dropout(genome)
                 else:
                     # Validation/test always uses the complete evolved circuit.
-                    genome.clear_innovation_dropout()
+                    genome.clear_quantum_dropout()
 
                 predictions = genome.forward(x_batch)
 
@@ -245,13 +312,13 @@ class SupervisedTrainer:
             weight_decay=float(hyperparameters.get("weight_decay", 5e-04)),
         )
 
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            mode="min",
-            factor=0.5,
-            patience=3,
-            min_lr=1e-6,
-        )
+        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer,
+        #     mode="min",
+        #     factor=0.5,
+        #     patience=3,
+        #     min_lr=1e-6,
+        # )
 
         best_loss = math.inf
         best_epoch = 0
@@ -296,7 +363,7 @@ class SupervisedTrainer:
             validation_loss = validation_metric_results["loss"]
             training_loss = training_metric_results["loss"]
 
-            scheduler.step(validation_loss)
+            # scheduler.step(validation_loss)
 
             avg_loss = (validation_loss + training_loss) / 2.0
 

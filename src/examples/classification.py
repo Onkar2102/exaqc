@@ -234,6 +234,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Choose the output mode from the quantum circuit.",
     )
     parser.add_argument(
+        "--quantum_dropout_type",
+        "-qdt",
+        type=str,
+        default="none",
+        choices=["gate", "rotation", "entangling", "qubit", "innovation"],
+        help="Choose the dropout type for quantum gates.",
+    )
+    parser.add_argument(
         "--quantum_dropout_rate",
         "-qdr",
         type=float,
@@ -516,6 +524,7 @@ def main() -> None:
         "batch_size": args.batch_size,
         "quantum_input_mode": args.quantum_input_mode,
         "quantum_output_mode": args.quantum_output_mode,
+        "quantum_dropout_type": args.quantum_dropout_type,
         "quantum_dropout_rate": args.quantum_dropout_rate,
     }
 
