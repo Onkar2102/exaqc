@@ -89,11 +89,11 @@ class SupervisedTrainer:
 
     def _apply_quantum_dropout(self, genome) -> None:
         """Samples and applies the configured quantum dropout strategy.
-        
+
         Args:
             genome: The CircuitGenome on which to apply dropout
 
-        Returns: 
+        Returns:
             None
         """
         genome.clear_quantum_dropout()
@@ -150,9 +150,7 @@ class SupervisedTrainer:
             )
 
         else:
-            raise ValueError(
-                f"Unknown quantum dropout type: {dropout_type}"
-            )
+            raise ValueError(f"Unknown quantum dropout type: {dropout_type}")
 
     def get_metrics(
         self,

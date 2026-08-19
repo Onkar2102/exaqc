@@ -731,10 +731,7 @@ class CircuitGenome:
 
                 # Structural enable/disable is controlled by evolution.
                 # Dropout is temporary and only affects this forward pass.
-                if (
-                    gate.enabled
-                    and not self.is_gate_dropped(gate)
-                ):
+                if gate.enabled and not self.is_gate_dropped(gate):
                     gate.add_to_pennylane_circuit(
                         self.qubits, weights=weights, offset=offset
                     )
@@ -825,10 +822,7 @@ class CircuitGenome:
             # set each gate and its parameters using the weight vector
             # Structural enable/disable is controlled by evolution.
             # Dropout is temporary and only affects this forward pass.
-            if (
-                gate.enabled
-                and not self.is_gate_dropped(gate)
-            ):
+            if gate.enabled and not self.is_gate_dropped(gate):
                 gate.add_to_qiskit_circuit(
                     register_dict, circuit, self.weight_vector, offset
                 )
@@ -993,12 +987,10 @@ class CircuitGenome:
         except Exception as e:
             logger.warning(f"Could not draw circuit: {e}")
 
-
     def clear_quantum_dropout(self) -> None:
         """Clears temporary quantum dropout masks."""
         self.dropout_gate_innovations.clear()
         self.dropout_qubits.clear()
-
 
     def is_gate_dropped(self, gate) -> bool:
         """Returns whether a gate is dropped for the current forward pass."""
