@@ -51,7 +51,16 @@ class QLearningTrainer(ReinforcementLearningTrainer):
     #: Value-based action selection is discrete-only (argmax / epsilon-greedy).
     supports_continuous: bool = False
 
-    def __init__(self, *, sarsa: bool = False, **kwargs: Any):
+    def __init__(self, *, sarsa: bool = False, **kwargs: Any) -> None:
+        """Initializes the value-based trainer.
+
+        Args:
+            sarsa: If True, use the on-policy SARSA target; otherwise use the
+                off-policy Q-learning (max) target.
+            **kwargs: Forwarded to
+                :class:`~src.trainer.reinforcement_trainer.ReinforcementLearningTrainer`.
+        """
+
         super().__init__(**kwargs)
         self.sarsa = sarsa
 

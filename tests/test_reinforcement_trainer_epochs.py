@@ -25,7 +25,11 @@ import numpy as np
 import pytest
 
 from src.circuits.circuit import CircuitGenome
-from src.examples.reinforcement_learning import CONTINUOUS_ENV_IDS, make_environment
+from src.examples.reinforcement_learning import (
+    CONTINUOUS_ENVS,
+    ENV_IDS,
+    make_environment,
+)
 
 from tests.reinforcement_trainer_test_utils import (
     CONTINUOUS_TRAINER_NAMES,
@@ -42,9 +46,9 @@ TARGETS: tuple[str, ...] = ("pennylane", "qiskit")
 #: Continuous ``--env`` names whose Gymnasium ids are MuJoCo tasks (everything
 #: except Pendulum, which is classic control). Instantiating these requires the
 #: optional ``mujoco`` dependency, so the spec test skips them when it is
-#: unavailable.
+#: unavailable. Sorted for a deterministic parametrization order.
 _MUJOCO_ENV_NAMES: tuple[str, ...] = tuple(
-    name for name in CONTINUOUS_ENV_IDS if name != "pendulum"
+    sorted(name for name in CONTINUOUS_ENVS if name != "pendulum")
 )
 
 
@@ -193,6 +197,55 @@ def test_train_respects_episode_count_from_hyperparameters(trainer_name: str) ->
 
     assert isinstance(genome, CircuitGenome)
     assert len(genome.metadata["training_episode_metrics"]) == 3
+
+
+def test_training_return_mean_is_exponential_moving_average(monkeypatch) -> None:
+    """``best_training_metrics['return_mean']`` is an EMA of episode returns.
+
+    Drives ``train`` with a scripted sequence of episode returns (by patching
+    ``run_update``) and asserts the reported training return mean equals the
+    exponential moving average ``ema = alpha * return + (1 - alpha) * ema``
+    (seeded with the first return), not a plain arithmetic mean. ``alpha`` is
+    read from the genome's ``ema_alpha`` hyperparameter. ``best_episode_return``
+    must still be the maximum raw return.
+
+    Args:
+        monkeypatch: pytest fixture used to script ``run_update``'s returns.
+    """
+
+    trainer = build_trainer("reinforce")
+    genome, observation_features = build_rl_genome(
+        genome_number=7,
+        target="pennylane",
+        complexity="minimal",
+        encoder_name="linear",
+        decoder_name="linear",
+        trainer=trainer,
+    )
+    scripted_returns = [10.0, 0.0, 4.0, 8.0]
+    alpha = 0.5
+    genome.hyperparameters["episodes"] = len(scripted_returns)
+    genome.hyperparameters["ema_alpha"] = alpha
+    environment = make_test_environment(observation_features)
+
+    remaining = list(scripted_returns)
+
+    def scripted_update(genome_, environment_, optimizer_, episode_index_, hp_):
+        return remaining.pop(0), {}
+
+    monkeypatch.setattr(trainer, "run_update", scripted_update)
+
+    trainer.train(genome, environment)
+
+    expected_ema = scripted_returns[0]
+    for value in scripted_returns[1:]:
+        expected_ema = alpha * value + (1.0 - alpha) * expected_ema
+
+    metrics = genome.metadata["best_training_metrics"]
+    assert metrics["return_mean"] == pytest.approx(expected_ema)
+    # distinct from a plain mean, so this genuinely tests the EMA
+    assert metrics["return_mean"] != pytest.approx(float(np.mean(scripted_returns)))
+    assert metrics["best_episode_return"] == max(scripted_returns)
 
 
 def test_frozenlake_is_flagged_deterministic_only_when_not_slippery() -> None:
@@ -363,7 +416,7 @@ def test_make_environment_builds_continuous_mujoco(env_name: str) -> None:
     bound per dimension, and ``n_policy_outputs == 2 * n_actions``.
 
     Args:
-        env_name: A MuJoCo environment name from :data:`CONTINUOUS_ENV_IDS`.
+        env_name: A MuJoCo environment name from :data:`CONTINUOUS_ENVS`.
     """
 
     pytest.importorskip("mujoco")
@@ -371,7 +424,7 @@ def test_make_environment_builds_continuous_mujoco(env_name: str) -> None:
 
     environment = make_environment(env_name)
     assert environment.continuous is True
-    assert environment.env_id == CONTINUOUS_ENV_IDS[env_name]
+    assert environment.env_id == ENV_IDS[env_name]
 
     probe = gym.make(environment.env_id)
     try:

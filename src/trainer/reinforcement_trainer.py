@@ -13,8 +13,9 @@ supervised path uses:
   quantum layer -> decoder);
 * ``genome.forward(observation)`` produces one output value per action
   (interpreted as policy logits or Q-values);
-* ``genome.hybrid_model.parameters()`` are the only trainable parameters;
-* ``genome.set_parameters(state_dict)`` restores the best-performing weights.
+* ``genome.parameters()`` are the only trainable parameters;
+* ``genome.clone_state_dict()`` snapshots and
+  ``genome.set_state_dict(state_dict)`` restores the best-performing weights.
 
 Terminology
     The trainers use these terms consistently:
@@ -452,6 +453,11 @@ class RLHyperparameters:
         eval_episodes: Number of episodes used for greedy evaluation.
         seed: Base random seed.
         log_every: Logging / evaluation frequency, in episodes.
+        ema_alpha: Smoothing factor for the exponential moving average (EMA)
+            of episode returns that is reported as the training return mean.
+            Each episode updates ``ema = alpha * return + (1 - alpha) * ema``;
+            a smaller alpha tracks more slowly and smoothly (the default 0.01
+            corresponds to an effective averaging window of ~100 episodes).
         baseline: REINFORCE advantage baseline (``"mean"`` or ``"none"``).
         entropy_coef: Entropy-bonus coefficient.
         value_coef: Weight on the value loss (actor-critic / PPO).
@@ -476,6 +482,7 @@ class RLHyperparameters:
     eval_episodes: int = 10
     seed: int = 0
     log_every: int = 10
+    ema_alpha: float = 0.01
     baseline: str = "mean"
     entropy_coef: float = 0.0
     value_coef: float = 0.5
@@ -608,6 +615,8 @@ class ReinforcementLearningTrainer(ABC):
         eval_episodes: Number of episodes used for greedy evaluation.
         seed: Base random seed.
         log_every: Logging / evaluation frequency, in episodes.
+        ema_alpha: Smoothing factor for the exponential moving average of
+            episode returns reported as the training return mean.
         entropy_coef: Entropy-bonus coefficient.
         baseline: Baseline used by REINFORCE (``"mean"`` or ``"none"``).
         value_coef: Weight on the value loss (actor-critic / PPO).
@@ -651,6 +660,7 @@ class ReinforcementLearningTrainer(ABC):
         eval_episodes: int = 10,
         seed: int = 0,
         log_every: int = 10,
+        ema_alpha: float = 0.01,
         entropy_coef: float = 0.0,
         baseline: str = "mean",
         value_coef: float = 0.5,
@@ -662,7 +672,15 @@ class ReinforcementLearningTrainer(ABC):
         epsilon: float = 0.2,
         epsilon_min: float = 0.05,
         epsilon_decay: float = 0.995,
-    ):
+    ) -> None:
+        """Initializes the trainer's default hyperparameters.
+
+        Each keyword argument sets the corresponding field of :attr:`defaults`
+        (an :class:`RLHyperparameters`), which supplies the value whenever a
+        genome does not override that field through its ``hyperparameters``
+        dict. See the class docstring for a description of every argument.
+        """
+
         self.defaults = RLHyperparameters(
             episodes=episodes,
             learning_rate=learning_rate,
@@ -671,6 +689,7 @@ class ReinforcementLearningTrainer(ABC):
             eval_episodes=eval_episodes,
             seed=seed,
             log_every=log_every,
+            ema_alpha=ema_alpha,
             entropy_coef=entropy_coef,
             baseline=baseline,
             value_coef=value_coef,
@@ -811,23 +830,6 @@ class ReinforcementLearningTrainer(ABC):
             "best_episode_return": float(np.max(returns)) if returns else 0.0,
         }
 
-    def _clone_hybrid_state(self, genome: CircuitGenome) -> dict[str, Tensor]:
-        """Snapshots the genome's hybrid-model weights.
-
-        Args:
-            genome: An initialized genome.
-
-        Returns:
-            A detached, cloned ``state_dict`` suitable for
-            ``genome.set_parameters``.
-        """
-
-        with torch.no_grad():
-            return {
-                name: tensor.detach().clone()
-                for name, tensor in genome.hybrid_model.state_dict().items()
-            }
-
     # -- main entry point -----------------------------------------------------
 
     def train(self, genome: CircuitGenome, environment: RLEnvironment) -> None:
@@ -842,6 +844,11 @@ class ReinforcementLearningTrainer(ABC):
         Args:
             genome: The genome to train (its model is initialized here).
             environment: The environment to train on.
+
+        Raises:
+            ValueError: If ``environment`` is continuous but this trainer does
+                not support continuous action spaces
+                (:attr:`supports_continuous` is False).
         """
 
         if environment.continuous and not self.supports_continuous:
@@ -863,7 +870,7 @@ class ReinforcementLearningTrainer(ABC):
         # methods, which is an extra decoder row. There is no external head to
         # optimize, so everything trained here is also evolved by crossover
         # and preserved through genome serialization.
-        trainable_parameters = list(genome.hybrid_model.parameters())
+        trainable_parameters = list(genome.parameters())
 
         genome.metadata["training_episode_metrics"] = []
 
@@ -884,8 +891,13 @@ class ReinforcementLearningTrainer(ABC):
         )
 
         recent_returns: list[float] = []
+        # Exponential moving average of episode returns, reported as the
+        # training return mean. Seeded with the first episode's return (no
+        # cold-start-at-zero bias), then updated as
+        # ``ema = alpha * return + (1 - alpha) * ema`` each episode.
+        ema_return: Optional[float] = None
         best_return = -math.inf
-        best_state = self._clone_hybrid_state(genome)
+        best_state = genome.clone_state_dict()
         best_evaluation = None
         eval_every = max(1, hp.log_every)
         best_episode = 0
@@ -895,6 +907,11 @@ class ReinforcementLearningTrainer(ABC):
                 genome, environment, optimizer, episode, hp
             )
             recent_returns.append(episode_return)
+            ema_return = (
+                episode_return
+                if ema_return is None
+                else hp.ema_alpha * episode_return + (1.0 - hp.ema_alpha) * ema_return
+            )
 
             episode_metrics = {"episode": episode, "return": episode_return}
             episode_metrics.update(info)
@@ -902,30 +919,26 @@ class ReinforcementLearningTrainer(ABC):
 
             if (episode % eval_every == 0) or (episode == hp.episodes - 1):
                 evaluation = self.evaluate(genome, environment, hp)
+
                 logger.info(
-                    f"[{type(self).__name__}] episode {episode:04d} "
+                    f"[{type(self).__name__}] genome {genome.genome_number:4d} episode {episode:4d} "
                     f"train_return={episode_return:.1f} "
+                    f"train_return_ema={ema_return:.1f} "
                     f"eval_return_mean={evaluation['return_mean']:.1f}"
                 )
+
                 if evaluation["return_mean"] > best_return:
                     best_return = evaluation["return_mean"]
                     best_evaluation = evaluation
-                    best_state = self._clone_hybrid_state(genome)
+                    best_state = genome.clone_state_dict()
                     best_episode = episode
 
         # restore the best-evaluated weights into the genome
-        genome.set_parameters(best_state)
-
-        if len(recent_returns) >= 20:
-            train_tail = float(np.mean(recent_returns[-20:]))
-        elif recent_returns:
-            train_tail = float(np.mean(recent_returns))
-        else:
-            train_tail = 0.0
+        genome.set_state_dict(best_state)
 
         genome.metadata["best_episode"] = best_episode
         genome.metadata["best_training_metrics"] = {
-            "return_mean": train_tail,
+            "return_mean": float(ema_return) if ema_return is not None else 0.0,
             "best_episode_return": (
                 float(np.max(recent_returns)) if recent_returns else 0.0
             ),

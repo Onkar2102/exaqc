@@ -38,21 +38,15 @@ import gymnasium as gym
 from loguru import logger
 
 from src.circuits.circuit import CircuitGenome
-from src.examples.reinforcement_learning import CONTINUOUS_ENV_IDS, make_environment
+from src.examples.reinforcement_learning import ENV_IDS, make_environment
 from src.trainer.reinforcement_trainer import RLEnvironment, greedy_action
 
-#: Maps a Gymnasium environment id back to the friendly ``--env`` name used by
-#: ``src.examples.reinforcement_learning.make_environment``. Covers the
-#: discrete tasks plus every continuous (``Box``-action) task, so a genome
-#: trained on any supported environment can be auto-detected from its recorded
-#: ``fitness["env_id"]``.
-ENV_ID_TO_NAME: dict[str, str] = {
-    "CartPole-v1": "cartpole",
-    "Acrobot-v1": "acrobot",
-    "MountainCar-v0": "mountaincar",
-    "FrozenLake-v1": "frozenlake",
-    **{env_id: name for name, env_id in CONTINUOUS_ENV_IDS.items()},
-}
+#: Maps a Gymnasium environment id back to the friendly ``--env`` name, derived
+#: by reversing ``src.examples.reinforcement_learning.ENV_IDS`` (the single
+#: source of truth). Covers every supported environment -- discrete and
+#: continuous alike -- so a genome trained on any of them can be auto-detected
+#: from its recorded ``fitness["env_id"]``.
+ENV_ID_TO_NAME: dict[str, str] = {env_id: name for name, env_id in ENV_IDS.items()}
 
 
 def load_genome(json_path: str) -> CircuitGenome:

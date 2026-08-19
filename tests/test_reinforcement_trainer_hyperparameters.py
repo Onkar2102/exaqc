@@ -56,6 +56,7 @@ def test_rl_hyperparameters_is_a_public_dataclass() -> None:
         "gamma",
         "max_steps",
         "eval_episodes",
+        "ema_alpha",
         "ppo_passes",
         "ppo_minibatch",
         "epsilon",
@@ -66,6 +67,7 @@ def test_rl_hyperparameters_is_a_public_dataclass() -> None:
     defaults = RLHyperparameters()
     assert defaults.episodes == 60
     assert defaults.ppo_passes == 4
+    assert defaults.ema_alpha == 0.01
 
 
 def test_resolve_hyperparameters_falls_back_to_trainer_defaults() -> None:

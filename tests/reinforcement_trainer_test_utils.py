@@ -434,9 +434,7 @@ def prepare_single_update(
 
     genome.initialize_model()
     hyperparameters = trainer.resolve_hyperparameters(genome)
-    optimizer = torch.optim.Adam(
-        genome.hybrid_model.parameters(), lr=hyperparameters.learning_rate
-    )
+    optimizer = torch.optim.Adam(genome.parameters(), lr=hyperparameters.learning_rate)
     return optimizer, hyperparameters
 
 
