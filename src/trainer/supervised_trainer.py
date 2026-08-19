@@ -234,7 +234,7 @@ class SupervisedTrainer:
                         for metric in self.metrics.values():
                             metric.accumulate(prediction.float(), target.long())
 
-        genome.clear_innovation_dropout()
+        genome.clear_quantum_dropout()
 
         metric_results: dict[str, Any] = {
             "loss": (total_loss / total_samples if total_samples else float("nan"))
@@ -424,6 +424,11 @@ class SupervisedTrainer:
             genome=genome,
             dataloader=self.testing_dataloader,
             loss_function=self.testing_loss_function,
+        )
+
+        logger.info(
+            "test metrics: {}",
+            test_metrics,
         )
 
         genome.metadata["testing_metrics"] = test_metrics

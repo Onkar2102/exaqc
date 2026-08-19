@@ -1,8 +1,8 @@
 #!/bin/bash -l
-#SBATCH -J exaqc_cifar10_qdo
-#SBATCH -t 0-10:00:00
-#SBATCH -o ./outs/cifar10/output_qdo.o
-#SBATCH -e ./logs/cifar10/error_qdo.e
+#SBATCH -J exaqc_cifar10_gqdo
+#SBATCH -t 2-00:00:00
+#SBATCH -o ./outs/cifar10/output_gqdo.o
+#SBATCH -e ./logs/cifar10/error_gqdo.e
 #SBATCH -A cps -p tier3
 #SBATCH --nodes=1
 #SBATCH --ntasks=6
@@ -47,7 +47,7 @@ srun python3.11 -m src.examples.classification \
     --quantum_input_mode ry \
     --quantum_output_mode probs \
     --quantum_dropout_type $QUANTUM_DROPOUT_TYPE \
-    --quantum_dropout_rate 0.05 \
+    --quantum_dropout_rate 0.1 \
     --device cuda \
     --batch_size $BATCH_SIZE \
     --validation_batch_size $BATCH_SIZE \
