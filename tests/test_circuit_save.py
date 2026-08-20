@@ -91,7 +91,7 @@ def _build_saveable_genome(
         }
     else:
         genome.metadata = {}
-        genome.fitness = {"best_episode_return": 1.5, "eval_return_mean": 2.5}
+        genome.fitness = {"train_return_mean": 1.5, "eval_return_mean": 2.5}
 
     if initialize:
         genome.initialize_model()
@@ -246,8 +246,8 @@ def test_save_circuit_uses_fitness_fallback_tag_without_metrics(
     genome.save_circuit(insert_type="best", out_dir=str(out_dir))
 
     (png_name,) = _split_by_suffix(str(out_dir))[".png"]
-    assert "best_ep_return_1.5000" in png_name
-    assert "eval_return_mean_2.5000" in png_name
+    assert "train_ret_1.5000" in png_name
+    assert "val_ret_2.5000" in png_name
 
 
 @pytest.mark.parametrize("target", TARGETS)

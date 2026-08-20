@@ -553,7 +553,7 @@ def circuit_trainable_parameters(genome: CircuitGenome) -> list[torch.nn.Paramet
 def snapshot_gate_parameters(genome: CircuitGenome) -> dict[int, dict[str, float]]:
     """Snapshots the plain-float gate parameters of all enabled gates.
 
-    This mirrors the representation ``CircuitGenome.set_parameters`` writes
+    This mirrors the representation ``CircuitGenome.set_state_dict`` writes
     back into ``gate.parameters`` after training, so it can be compared
     before/after a training run to prove the quantum circuit's own
     parameters actually changed.
@@ -578,7 +578,7 @@ def state_dict_with_quantum_weights(
 ) -> dict[str, torch.Tensor]:
     """Builds a self-consistent hybrid-model state dict with given quantum weights.
 
-    ``CircuitGenome.set_parameters`` consumes a ``hybrid_model.state_dict()``
+    ``CircuitGenome.set_state_dict`` consumes a ``hybrid_model.state_dict()``
     snapshot (the shape the trainer captures for the best epoch) and pushes
     the quantum-layer weights back into ``gate.parameters``. To test that,
     a caller needs a valid state dict whose quantum weights are known values.
@@ -601,14 +601,11 @@ def state_dict_with_quantum_weights(
 
     Returns:
         A detached, cloned ``state_dict`` suitable to pass to
-        ``genome.set_parameters``.
+        ``genome.set_state_dict``.
     """
 
     with torch.no_grad():
         weight_param = hybrid_named_parameters(genome)[genome.quantum_weight_key]
         weight_param.copy_(torch.as_tensor(weights, dtype=weight_param.dtype))
 
-    return {
-        name: tensor.detach().clone()
-        for name, tensor in genome.hybrid_model.state_dict().items()
-    }
+    return genome.clone_state_dict()

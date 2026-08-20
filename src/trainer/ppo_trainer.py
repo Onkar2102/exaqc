@@ -12,7 +12,6 @@ import numpy as np
 import torch
 
 from torch import Tensor
-from torch.distributions import Categorical
 
 from src.circuits.circuit import CircuitGenome
 from src.trainer.reinforcement_trainer import (
@@ -20,7 +19,12 @@ from src.trainer.reinforcement_trainer import (
     ReinforcementLearningTrainer,
     RLHyperparameters,
     _normalize,
+    action_distribution,
+    distribution_entropy,
+    distribution_log_prob,
     gae_advantages,
+    split_policy_value,
+    to_env_action,
 )
 
 
@@ -64,11 +68,13 @@ class PPOTrainer(ReinforcementLearningTrainer):
             A dict of stacked transition tensors (``observations``,
             ``actions``, ``old_log_probs``, ``old_values``, ``rewards``,
             ``dones``) plus ``episode_returns``, the list of per-episode
-            returns collected during the rollout.
+            returns collected during the rollout. ``actions`` is a list of
+            per-step action tensors (scalar for discrete spaces, vectors for
+            continuous ones).
         """
 
         observations: list[Tensor] = []
-        actions: list[int] = []
+        actions: list[Tensor] = []
         old_log_probs: list[float] = []
         old_values: list[float] = []
         rewards: list[float] = []
@@ -87,19 +93,19 @@ class PPOTrainer(ReinforcementLearningTrainer):
                 encoded = environment.encode(observation)
                 with torch.no_grad():
                     output = genome.forward(encoded)
-                    logits, value = self.split_policy_value(
-                        output, environment.n_actions
-                    )
-                    distribution = Categorical(logits=logits)
+                    part, value = split_policy_value(output, environment)
+                    distribution = action_distribution(part, environment)
                     action = distribution.sample()
 
                 observations.append(encoded.detach())
-                actions.append(int(action.item()))
-                old_log_probs.append(float(distribution.log_prob(action).item()))
+                actions.append(action.detach())
+                old_log_probs.append(
+                    float(distribution_log_prob(distribution, action).item())
+                )
                 old_values.append(float(value.item()))
 
                 observation, reward, terminated, truncated, _ = env.step(
-                    int(action.item())
+                    to_env_action(action, environment)
                 )
                 done = terminated or truncated
                 rewards.append(float(reward))
@@ -115,7 +121,7 @@ class PPOTrainer(ReinforcementLearningTrainer):
 
         return {
             "observations": observations,
-            "actions": torch.tensor(actions, dtype=torch.long),
+            "actions": actions,
             "old_log_probs": torch.tensor(old_log_probs, dtype=torch.float32),
             "old_values": torch.tensor(old_values, dtype=torch.float32),
             "rewards": torch.tensor(rewards, dtype=torch.float32),
@@ -181,12 +187,12 @@ class PPOTrainer(ReinforcementLearningTrainer):
 
                 for i in index.tolist():
                     output = genome.forward(observations[i])
-                    logits, value = self.split_policy_value(
-                        output, environment.n_actions
+                    part, value = split_policy_value(output, environment)
+                    distribution = action_distribution(part, environment)
+                    new_log_probs.append(
+                        distribution_log_prob(distribution, actions[i])
                     )
-                    distribution = Categorical(logits=logits)
-                    new_log_probs.append(distribution.log_prob(actions[i]))
-                    entropies.append(distribution.entropy())
+                    entropies.append(distribution_entropy(distribution))
                     new_values.append(value)
 
                 new_log_prob_tensor = torch.stack(new_log_probs)
