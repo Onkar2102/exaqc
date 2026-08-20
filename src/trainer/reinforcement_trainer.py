@@ -13,8 +13,9 @@ supervised path uses:
   quantum layer -> decoder);
 * ``genome.forward(observation)`` produces one output value per action
   (interpreted as policy logits or Q-values);
-* ``genome.hybrid_model.parameters()`` are the only trainable parameters;
-* ``genome.set_parameters(state_dict)`` restores the best-performing weights.
+* ``genome.parameters()`` are the only trainable parameters;
+* ``genome.clone_state_dict()`` snapshots and
+  ``genome.set_state_dict(state_dict)`` restores the best-performing weights.
 
 Terminology
     The trainers use these terms consistently:
@@ -42,8 +43,9 @@ in addition to the per-action policy outputs. Rather than owning a separate
 value head (whose weights would live outside the genome -- never serialized,
 never recombined by the encoder/decoder crossover operators, and re-created
 from scratch every evaluation), those trainers ask the genome's decoder for
-one *extra* output. The decoder is sized to ``n_actions + n_value_outputs``,
-so the value estimate is just another row of the decoder's linear layer and
+one *extra* output. The decoder is sized to
+``n_policy_outputs + n_value_outputs``, so the value estimate is just another
+row of the decoder's linear layer and
 is therefore part of ``genome.hybrid_model`` -- evolved by
 ``crossover_encoder_decoder`` / ``torch_simplex_crossover`` and preserved
 across ``to_dict``/``from_dict`` exactly like the policy weights. This does
@@ -72,8 +74,21 @@ algorithms each live in their own module and subclass the base here:
   Q-learning / SARSA.
 
 They are collected by name in
-:data:`src.trainer.rl_trainer_registry.TRAINER_REGISTRY`. All four target
-discrete action spaces.
+:data:`src.trainer.rl_trainer_registry.TRAINER_REGISTRY`.
+
+Action spaces
+    All trainers support **discrete** action spaces (a ``Categorical`` policy).
+    The three policy-gradient trainers (REINFORCE, actor-critic, PPO)
+    additionally support **continuous** ``Box`` action spaces via a diagonal
+    ``Normal`` policy whose per-dimension mean and log-standard-deviation are
+    read from the decoder (so the policy stays entirely inside the genome). The
+    value-based trainer (Q-learning / SARSA) is discrete-only, since it selects
+    actions by argmax / epsilon-greedy over enumerable action values; it sets
+    ``supports_continuous = False`` and :meth:`ReinforcementLearningTrainer.
+    train` raises if paired with a continuous environment. The discrete vs.
+    continuous branching itself lives in the shared module-level
+    :func:`action_distribution` / :func:`to_env_action` / :func:`greedy_action`
+    helpers.
 """
 
 from __future__ import annotations
@@ -88,10 +103,17 @@ import torch
 
 from loguru import logger
 from torch import Tensor
+from torch.distributions import Categorical, Distribution, Normal
 
 import gymnasium as gym
 
 from src.circuits.circuit import CircuitGenome
+
+#: Bounds applied to the per-dimension log-standard-deviation a continuous
+#: (Gaussian) policy reads from the decoder, keeping the sampled action scale
+#: numerically sane regardless of the unconstrained decoder outputs.
+LOG_STD_MIN: float = -5.0
+LOG_STD_MAX: float = 2.0
 
 # ---------------------------------------------------------------------------
 # Environment abstraction
@@ -103,18 +125,29 @@ class RLEnvironment:
     """A pluggable description of a reinforcement-learning environment.
 
     This wraps a Gymnasium environment id together with everything a trainer
-    needs to run it against a genome policy: the number of discrete actions,
-    the size of the encoded observation vector, and a callable that turns a
-    raw environment observation into that fixed-length feature tensor.
+    needs to run it against a genome policy: the number of actions (or action
+    dimensions), the size of the encoded observation vector, and a callable
+    that turns a raw environment observation into that fixed-length feature
+    tensor.
 
     Keeping the observation encoder here (rather than inside the genome)
     means the genome's own learnable ``Encoder`` only ever sees a clean,
     fixed-length feature vector, so the existing ``LinearEncoder`` /
     ``IdentityEncoder`` classes work without modification.
 
+    The environment may expose either a **discrete** action space (the
+    default, e.g. CartPole) or a **continuous** ``Box`` action space (e.g.
+    Pendulum and the MuJoCo tasks). For a discrete space the policy-gradient
+    trainers build a ``Categorical`` over ``n_actions`` logits; for a
+    continuous space they build a diagonal ``Normal`` whose per-dimension mean
+    and log-standard-deviation are both read from the decoder (see
+    :attr:`n_policy_outputs`), keeping the whole policy inside the genome.
+
     Attributes:
         env_id: Gymnasium environment id (e.g. ``"CartPole-v1"``).
-        n_actions: Number of discrete actions.
+        n_actions: For a discrete space, the number of discrete actions. For a
+            continuous space (``continuous=True``), the action dimensionality
+            (the number of ``Box`` action components).
         n_observation_features: Length of the encoded observation vector,
             i.e. the number of inputs the genome's ``Encoder`` expects.
         obs_encoder: Callable mapping a raw observation into a float tensor
@@ -126,6 +159,13 @@ class RLEnvironment:
             greedy evaluation runs a single episode instead of
             ``eval_episodes`` identical ones (see
             :meth:`ReinforcementLearningTrainer.evaluate`).
+        continuous: Whether the action space is a continuous ``Box`` (True) or
+            discrete (False, the default).
+        action_low: For a continuous space, the per-dimension lower action
+            bound (shape ``(n_actions,)``); actions are clipped to it before
+            being passed to the environment. ``None`` for discrete spaces.
+        action_high: For a continuous space, the per-dimension upper action
+            bound (shape ``(n_actions,)``). ``None`` for discrete spaces.
     """
 
     env_id: str
@@ -134,6 +174,24 @@ class RLEnvironment:
     obs_encoder: Callable[[Any], Tensor]
     env_kwargs: Optional[dict[str, Any]] = None
     deterministic: bool = False
+    continuous: bool = False
+    action_low: Optional[np.ndarray] = None
+    action_high: Optional[np.ndarray] = None
+
+    @property
+    def n_policy_outputs(self) -> int:
+        """Number of decoder outputs the policy occupies (before any value).
+
+        A discrete policy needs one logit per action (``n_actions``). A
+        continuous diagonal-Gaussian policy needs a mean *and* a
+        log-standard-deviation per action dimension (``2 * n_actions``), both
+        read from the decoder so the entire policy is part of the genome.
+
+        Returns:
+            The number of leading decoder outputs devoted to the policy.
+        """
+
+        return 2 * self.n_actions if self.continuous else self.n_actions
 
     def make(self) -> gym.Env:
         """Instantiates the underlying Gymnasium environment.
@@ -206,6 +264,175 @@ def onehot_observation_encoder(n_states: int) -> Callable[[Any], Tensor]:
 
 
 # ---------------------------------------------------------------------------
+# Action-space helpers (shared by every policy-gradient trainer and by the
+# visualization script, so the discrete/continuous branching lives in exactly
+# one place).
+# ---------------------------------------------------------------------------
+
+
+def action_distribution(
+    policy_part: Tensor, environment: RLEnvironment
+) -> Distribution:
+    """Builds the action distribution from the policy portion of a genome output.
+
+    For a discrete environment this is a ``Categorical`` over ``n_actions``
+    logits. For a continuous environment the ``2 * n_actions`` policy outputs
+    are split into a per-dimension mean and (clamped) log-standard-deviation,
+    yielding a diagonal ``Normal``.
+
+    Args:
+        policy_part: The leading ``environment.n_policy_outputs`` entries of a
+            genome output (the policy, with any value output already sliced
+            off).
+        environment: The environment whose action space determines the
+            distribution family.
+
+    Returns:
+        A ``torch.distributions`` distribution to sample actions from.
+    """
+
+    if environment.continuous:
+        n = environment.n_actions
+        mean = policy_part[:n]
+        log_std = torch.clamp(policy_part[n : 2 * n], LOG_STD_MIN, LOG_STD_MAX)
+        return Normal(mean, log_std.exp())
+    return Categorical(logits=policy_part)
+
+
+def distribution_log_prob(distribution: Distribution, action: Tensor) -> Tensor:
+    """Returns a scalar log-probability for an action under a distribution.
+
+    A ``Categorical`` already yields a scalar; a diagonal ``Normal`` yields a
+    per-dimension vector, which is summed into the joint log-probability.
+
+    Args:
+        distribution: The action distribution.
+        action: The sampled action tensor.
+
+    Returns:
+        A scalar log-probability tensor.
+    """
+
+    log_prob = distribution.log_prob(action)
+    return log_prob.sum(-1) if log_prob.dim() > 0 else log_prob
+
+
+def distribution_entropy(distribution: Distribution) -> Tensor:
+    """Returns a scalar entropy for a distribution.
+
+    As with :func:`distribution_log_prob`, a diagonal ``Normal``'s
+    per-dimension entropy is summed into a single scalar.
+
+    Args:
+        distribution: The action distribution.
+
+    Returns:
+        A scalar entropy tensor.
+    """
+
+    entropy = distribution.entropy()
+    return entropy.sum(-1) if entropy.dim() > 0 else entropy
+
+
+def to_env_action(action: Tensor, environment: RLEnvironment) -> Any:
+    """Converts a policy action tensor into the value ``env.step`` expects.
+
+    For a discrete environment this is a Python ``int``. For a continuous
+    environment it is a ``float32`` NumPy array clipped to the environment's
+    action bounds.
+
+    Args:
+        action: The action tensor (a scalar for discrete spaces, a vector of
+            shape ``(n_actions,)`` for continuous spaces).
+        environment: The environment whose action space determines the format.
+
+    Returns:
+        The action in the environment's native format.
+    """
+
+    if environment.continuous:
+        array = np.asarray(action.detach(), dtype=np.float32).reshape(-1)
+        if environment.action_low is not None:
+            array = np.clip(array, environment.action_low, environment.action_high)
+        return array.astype(np.float32)
+    return int(action.item())
+
+
+def policy_output(
+    genome: CircuitGenome, environment: RLEnvironment, observation: Any
+) -> Tensor:
+    """Computes the policy portion of a genome output for an observation.
+
+    Any trailing value output (see
+    :attr:`ReinforcementLearningTrainer.n_value_outputs`) is sliced off, so
+    the result has length ``environment.n_policy_outputs``.
+
+    Args:
+        genome: The genome policy.
+        environment: The environment (provides observation encoding).
+        observation: A raw environment observation.
+
+    Returns:
+        The policy outputs of shape ``(environment.n_policy_outputs,)``.
+    """
+
+    output = genome.forward(environment.encode(observation))
+    return output[: environment.n_policy_outputs]
+
+
+def split_policy_value(
+    output: Tensor, environment: RLEnvironment
+) -> tuple[Tensor, Tensor]:
+    """Splits a genome output into its policy part and a scalar state value.
+
+    Used by advantage methods (actor-critic, PPO) whose decoder produces one
+    extra output beyond the policy: the leading ``environment.n_policy_outputs``
+    entries are the policy, and the next entry is the state-value estimate.
+
+    Args:
+        output: The genome's raw output vector of shape
+            ``(environment.n_policy_outputs + 1,)``.
+        environment: The environment whose action space sizes the policy part.
+
+    Returns:
+        A tuple ``(policy_part, value)`` where ``policy_part`` has shape
+        ``(environment.n_policy_outputs,)`` and ``value`` is a scalar tensor.
+    """
+
+    n = environment.n_policy_outputs
+    return output[:n], output[n]
+
+
+@torch.no_grad()
+def greedy_action(
+    genome: CircuitGenome, environment: RLEnvironment, observation: Any
+) -> Any:
+    """Selects the greedy (deterministic) action for an observation.
+
+    For a discrete environment this is the argmax over the policy logits. For
+    a continuous environment it is the distribution mean, clipped to the
+    action bounds. In both cases the result is already in the environment's
+    native ``env.step`` format.
+
+    Args:
+        genome: The genome policy.
+        environment: The environment (provides observation encoding and action
+            metadata).
+        observation: A raw environment observation.
+
+    Returns:
+        The greedy action in the environment's native format (an ``int`` for
+        discrete spaces, a ``float32`` NumPy array for continuous spaces).
+    """
+
+    part = policy_output(genome, environment, observation)
+    if environment.continuous:
+        mean = part[: environment.n_actions]
+        return to_env_action(mean, environment)
+    return int(torch.argmax(part).item())
+
+
+# ---------------------------------------------------------------------------
 # Resolved hyperparameters
 # ---------------------------------------------------------------------------
 
@@ -226,6 +453,11 @@ class RLHyperparameters:
         eval_episodes: Number of episodes used for greedy evaluation.
         seed: Base random seed.
         log_every: Logging / evaluation frequency, in episodes.
+        ema_alpha: Smoothing factor for the exponential moving average (EMA)
+            of episode returns that is reported as the training return mean.
+            Each episode updates ``ema = alpha * return + (1 - alpha) * ema``;
+            a smaller alpha tracks more slowly and smoothly (the default 0.01
+            corresponds to an effective averaging window of ~100 episodes).
         baseline: REINFORCE advantage baseline (``"mean"`` or ``"none"``).
         entropy_coef: Entropy-bonus coefficient.
         value_coef: Weight on the value loss (actor-critic / PPO).
@@ -250,6 +482,7 @@ class RLHyperparameters:
     eval_episodes: int = 10
     seed: int = 0
     log_every: int = 10
+    ema_alpha: float = 0.01
     baseline: str = "mean"
     entropy_coef: float = 0.0
     value_coef: float = 0.5
@@ -382,6 +615,8 @@ class ReinforcementLearningTrainer(ABC):
         eval_episodes: Number of episodes used for greedy evaluation.
         seed: Base random seed.
         log_every: Logging / evaluation frequency, in episodes.
+        ema_alpha: Smoothing factor for the exponential moving average of
+            episode returns reported as the training return mean.
         entropy_coef: Entropy-bonus coefficient.
         baseline: Baseline used by REINFORCE (``"mean"`` or ``"none"``).
         value_coef: Weight on the value loss (actor-critic / PPO).
@@ -396,15 +631,24 @@ class ReinforcementLearningTrainer(ABC):
         epsilon_decay: Per-episode multiplicative epsilon decay.
 
     Class Attributes:
-        n_value_outputs: How many extra decoder outputs (beyond
-            ``n_actions``) this algorithm needs. ``0`` for policy-only /
-            value-based methods; ``1`` for advantage methods that read a
-            scalar state value out of the decoder. The example script sizes
-            the genome's decoder as ``n_actions + n_value_outputs``.
+        n_value_outputs: How many extra decoder outputs (beyond the policy
+            outputs) this algorithm needs. ``0`` for policy-only / value-based
+            methods; ``1`` for advantage methods that read a scalar state value
+            out of the decoder. The example script sizes the genome's decoder
+            as ``environment.n_policy_outputs + n_value_outputs``.
+        supports_continuous: Whether the algorithm supports continuous
+            (``Box``) action spaces. Policy-gradient trainers (REINFORCE,
+            actor-critic, PPO) do; value-based trainers (Q-learning / SARSA),
+            which enumerate discrete actions via argmax / epsilon-greedy, do
+            not. :meth:`train` raises a clear error when a continuous
+            environment is paired with a trainer that does not support it.
     """
 
-    #: Extra decoder outputs required beyond the per-action outputs (see above).
+    #: Extra decoder outputs required beyond the policy outputs (see above).
     n_value_outputs: int = 0
+
+    #: Whether the algorithm supports continuous (``Box``) action spaces.
+    supports_continuous: bool = True
 
     def __init__(
         self,
@@ -416,6 +660,7 @@ class ReinforcementLearningTrainer(ABC):
         eval_episodes: int = 10,
         seed: int = 0,
         log_every: int = 10,
+        ema_alpha: float = 0.01,
         entropy_coef: float = 0.0,
         baseline: str = "mean",
         value_coef: float = 0.5,
@@ -427,7 +672,15 @@ class ReinforcementLearningTrainer(ABC):
         epsilon: float = 0.2,
         epsilon_min: float = 0.05,
         epsilon_decay: float = 0.995,
-    ):
+    ) -> None:
+        """Initializes the trainer's default hyperparameters.
+
+        Each keyword argument sets the corresponding field of :attr:`defaults`
+        (an :class:`RLHyperparameters`), which supplies the value whenever a
+        genome does not override that field through its ``hyperparameters``
+        dict. See the class docstring for a description of every argument.
+        """
+
         self.defaults = RLHyperparameters(
             episodes=episodes,
             learning_rate=learning_rate,
@@ -436,6 +689,7 @@ class ReinforcementLearningTrainer(ABC):
             eval_episodes=eval_episodes,
             seed=seed,
             log_every=log_every,
+            ema_alpha=ema_alpha,
             entropy_coef=entropy_coef,
             baseline=baseline,
             value_coef=value_coef,
@@ -529,26 +783,6 @@ class ReinforcementLearningTrainer(ABC):
         output = genome.forward(environment.encode(observation))
         return output[: environment.n_actions]
 
-    @staticmethod
-    def split_policy_value(output: Tensor, n_actions: int) -> tuple[Tensor, Tensor]:
-        """Splits a genome output into per-action logits and a scalar value.
-
-        Used by advantage methods (actor-critic, PPO) whose decoder produces
-        ``n_actions + 1`` outputs: the first ``n_actions`` are policy logits
-        and the last is the state-value estimate.
-
-        Args:
-            output: The genome's raw output vector of shape
-                ``(n_actions + 1,)``.
-            n_actions: The number of discrete actions.
-
-        Returns:
-            A tuple ``(logits, value)`` where ``logits`` has shape
-            ``(n_actions,)`` and ``value`` is a scalar tensor.
-        """
-
-        return output[:n_actions], output[n_actions]
-
     @torch.no_grad()
     def evaluate(
         self,
@@ -582,8 +816,7 @@ class ReinforcementLearningTrainer(ABC):
             observation, _ = env.reset(seed=hp.seed + 10_000 + episode)
             episode_return = 0.0
             for _ in range(hp.max_steps):
-                logits = self.policy_logits(genome, environment, observation)
-                action = int(torch.argmax(logits).item())
+                action = greedy_action(genome, environment, observation)
                 observation, reward, terminated, truncated, _ = env.step(action)
                 episode_return += float(reward)
                 if terminated or truncated:
@@ -596,23 +829,6 @@ class ReinforcementLearningTrainer(ABC):
             "return_std": float(np.std(returns)) if returns else 0.0,
             "best_episode_return": float(np.max(returns)) if returns else 0.0,
         }
-
-    def _clone_hybrid_state(self, genome: CircuitGenome) -> dict[str, Tensor]:
-        """Snapshots the genome's hybrid-model weights.
-
-        Args:
-            genome: An initialized genome.
-
-        Returns:
-            A detached, cloned ``state_dict`` suitable for
-            ``genome.set_parameters``.
-        """
-
-        with torch.no_grad():
-            return {
-                name: tensor.detach().clone()
-                for name, tensor in genome.hybrid_model.state_dict().items()
-            }
 
     # -- main entry point -----------------------------------------------------
 
@@ -628,7 +844,19 @@ class ReinforcementLearningTrainer(ABC):
         Args:
             genome: The genome to train (its model is initialized here).
             environment: The environment to train on.
+
+        Raises:
+            ValueError: If ``environment`` is continuous but this trainer does
+                not support continuous action spaces
+                (:attr:`supports_continuous` is False).
         """
+
+        if environment.continuous and not self.supports_continuous:
+            raise ValueError(
+                f"{type(self).__name__} does not support continuous action "
+                f"spaces (environment {environment.env_id!r} is continuous); "
+                "use a policy-gradient trainer (reinforce, actor_critic, ppo)."
+            )
 
         hp = self.resolve_hyperparameters(genome)
 
@@ -642,7 +870,7 @@ class ReinforcementLearningTrainer(ABC):
         # methods, which is an extra decoder row. There is no external head to
         # optimize, so everything trained here is also evolved by crossover
         # and preserved through genome serialization.
-        trainable_parameters = list(genome.hybrid_model.parameters())
+        trainable_parameters = list(genome.parameters())
 
         genome.metadata["training_episode_metrics"] = []
 
@@ -663,8 +891,13 @@ class ReinforcementLearningTrainer(ABC):
         )
 
         recent_returns: list[float] = []
+        # Exponential moving average of episode returns, reported as the
+        # training return mean. Seeded with the first episode's return (no
+        # cold-start-at-zero bias), then updated as
+        # ``ema = alpha * return + (1 - alpha) * ema`` each episode.
+        ema_return: Optional[float] = None
         best_return = -math.inf
-        best_state = self._clone_hybrid_state(genome)
+        best_state = genome.clone_state_dict()
         best_evaluation = None
         eval_every = max(1, hp.log_every)
         best_episode = 0
@@ -674,6 +907,11 @@ class ReinforcementLearningTrainer(ABC):
                 genome, environment, optimizer, episode, hp
             )
             recent_returns.append(episode_return)
+            ema_return = (
+                episode_return
+                if ema_return is None
+                else hp.ema_alpha * episode_return + (1.0 - hp.ema_alpha) * ema_return
+            )
 
             episode_metrics = {"episode": episode, "return": episode_return}
             episode_metrics.update(info)
@@ -681,30 +919,26 @@ class ReinforcementLearningTrainer(ABC):
 
             if (episode % eval_every == 0) or (episode == hp.episodes - 1):
                 evaluation = self.evaluate(genome, environment, hp)
+
                 logger.info(
-                    f"[{type(self).__name__}] episode {episode:04d} "
+                    f"[{type(self).__name__}] genome {genome.genome_number:4d} episode {episode:4d} "
                     f"train_return={episode_return:.1f} "
+                    f"train_return_ema={ema_return:.1f} "
                     f"eval_return_mean={evaluation['return_mean']:.1f}"
                 )
+
                 if evaluation["return_mean"] > best_return:
                     best_return = evaluation["return_mean"]
                     best_evaluation = evaluation
-                    best_state = self._clone_hybrid_state(genome)
+                    best_state = genome.clone_state_dict()
                     best_episode = episode
 
         # restore the best-evaluated weights into the genome
-        genome.set_parameters(best_state)
-
-        if len(recent_returns) >= 20:
-            train_tail = float(np.mean(recent_returns[-20:]))
-        elif recent_returns:
-            train_tail = float(np.mean(recent_returns))
-        else:
-            train_tail = 0.0
+        genome.set_state_dict(best_state)
 
         genome.metadata["best_episode"] = best_episode
         genome.metadata["best_training_metrics"] = {
-            "return_mean": train_tail,
+            "return_mean": float(ema_return) if ema_return is not None else 0.0,
             "best_episode_return": (
                 float(np.max(recent_returns)) if recent_returns else 0.0
             ),

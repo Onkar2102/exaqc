@@ -44,6 +44,10 @@ def initialize_encoder(
             invalid.
     """
 
+    logger.info(
+        f"creating {encoding_str} encoder with n_inputs: {n_inputs} and n_outputs: {n_outputs}"
+    )
+
     encoder = None
     encoder_config = dict(config or {})
 

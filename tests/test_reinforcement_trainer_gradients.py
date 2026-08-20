@@ -21,20 +21,24 @@ variety (including stateless coders) is covered in
 
 from __future__ import annotations
 
+import numpy as np
 import torch
 
 import pytest
 
 from src.circuits.circuit import CircuitGenome
+from src.trainer.reinforcement_trainer import greedy_action
 
 from tests.reinforcement_trainer_test_utils import (
     COMPLEXITY_LEVELS,
+    CONTINUOUS_TRAINER_NAMES,
     TRAINER_NAMES,
     build_rl_genome,
     build_trainer,
     circuit_trainable_parameters,
     decoder_trainable_parameters,
     encoder_trainable_parameters,
+    make_continuous_test_environment,
     make_test_environment,
     prepare_single_update,
     run_single_update,
@@ -152,6 +156,68 @@ def test_gradients_flow_through_encoder_circuit_decoder(
     ), "decoder weights did not change"
 
 
+@pytest.mark.parametrize("complexity", COMPLEXITY_LEVELS)
+@pytest.mark.parametrize("trainer_name", CONTINUOUS_TRAINER_NAMES)
+@pytest.mark.parametrize("target", TARGETS)
+def test_gradients_flow_through_encoder_circuit_decoder_continuous(
+    target: str, trainer_name: str, complexity: str
+) -> None:
+    """One update on a continuous env backprops through all three stages.
+
+    The continuous counterpart of
+    :func:`test_gradients_flow_through_encoder_circuit_decoder`: the genome's
+    decoder produces a mean *and* a log-std per action dimension (plus any
+    value output), the trainer builds a diagonal ``Normal`` policy, and a
+    single update must still push a non-zero gradient into the encoder, the
+    quantum weight tensor, and the decoder -- and move every one of them. Only
+    the policy-gradient trainers are exercised, since value-based methods do
+    not support continuous action spaces.
+
+    Args:
+        target: Either ``"pennylane"`` or ``"qiskit"``.
+        trainer_name: The (policy-gradient) RL algorithm to exercise.
+        complexity: The circuit complexity level to build.
+    """
+
+    trainer = build_trainer(trainer_name)
+    genome, observation_features = build_rl_genome(
+        genome_number=1,
+        target=target,
+        complexity=complexity,
+        encoder_name="linear",
+        decoder_name="linear",
+        trainer=trainer,
+        continuous=True,
+    )
+    environment = make_continuous_test_environment(observation_features)
+
+    optimizer, hp = prepare_single_update(trainer, genome)
+
+    encoder_params = encoder_trainable_parameters(genome)
+    (quantum_weight,) = circuit_trainable_parameters(genome)
+    decoder_params = decoder_trainable_parameters(genome)
+
+    encoder_before = _snapshot(encoder_params)
+    quantum_before = _snapshot([quantum_weight])
+    decoder_before = _snapshot(decoder_params)
+
+    trainer.run_update(genome, environment, optimizer, 0, hp)
+
+    _assert_stage_received_gradient(encoder_params, "encoder")
+    _assert_stage_received_gradient([quantum_weight], "quantum circuit")
+    _assert_stage_received_gradient(decoder_params, "decoder")
+
+    assert _any_changed(
+        encoder_before, encoder_params
+    ), "encoder weights did not change"
+    assert _any_changed(
+        quantum_before, [quantum_weight]
+    ), "quantum weights did not change"
+    assert _any_changed(
+        decoder_before, decoder_params
+    ), "decoder weights did not change"
+
+
 @pytest.mark.parametrize("trainer_name", TRAINER_NAMES)
 @pytest.mark.parametrize("target", TARGETS)
 def test_quantum_circuit_gradient_flows_with_stateless_coders(
@@ -227,6 +293,65 @@ def test_forward_output_is_differentiable_end_to_end(target: str) -> None:
         circuit_trainable_parameters(genome), "quantum circuit"
     )
     _assert_stage_received_gradient(decoder_trainable_parameters(genome), "decoder")
+
+
+def test_greedy_action_discrete_returns_valid_action_index() -> None:
+    """The shared greedy action is a valid discrete action index.
+
+    ``greedy_action`` is what both ``evaluate`` and the visualization script
+    use to drive the environment; for a discrete space it must return a Python
+    ``int`` within ``[0, n_actions)``.
+    """
+
+    trainer = build_trainer("reinforce")
+    genome, observation_features = build_rl_genome(
+        genome_number=5,
+        target="pennylane",
+        complexity="minimal",
+        encoder_name="linear",
+        decoder_name="linear",
+        trainer=trainer,
+    )
+    environment = make_test_environment(observation_features)
+    genome.initialize_model()
+
+    observation, _ = environment.make().reset(seed=0)
+    action = greedy_action(genome, environment, observation)
+
+    assert isinstance(action, int)
+    assert 0 <= action < environment.n_actions
+
+
+def test_greedy_action_continuous_is_clipped_to_bounds() -> None:
+    """The shared greedy action is a clipped, correctly-shaped float array.
+
+    For a continuous space ``greedy_action`` must return the policy mean as a
+    ``float32`` array of shape ``(n_actions,)`` clipped to the environment's
+    action bounds -- exactly what ``env.step`` (and the visualization script)
+    expects.
+    """
+
+    trainer = build_trainer("reinforce")
+    genome, observation_features = build_rl_genome(
+        genome_number=6,
+        target="pennylane",
+        complexity="minimal",
+        encoder_name="linear",
+        decoder_name="linear",
+        trainer=trainer,
+        continuous=True,
+    )
+    environment = make_continuous_test_environment(observation_features)
+    genome.initialize_model()
+
+    observation, _ = environment.make().reset(seed=0)
+    action = greedy_action(genome, environment, observation)
+
+    assert isinstance(action, np.ndarray)
+    assert action.shape == (environment.n_actions,)
+    assert action.dtype == np.float32
+    assert np.all(action >= environment.action_low)
+    assert np.all(action <= environment.action_high)
 
 
 def test_run_single_update_helper_returns_none() -> None:
