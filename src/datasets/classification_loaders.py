@@ -143,11 +143,12 @@ def _stratified_indices(
     return np.asarray(selected)
 
 
-def _image_transform(dataset: str) -> transforms.Compose:
+def _image_transform(dataset: str, training: bool = False) -> transforms.Compose:
     """Creates the deterministic image preprocessing transform.
 
     Args:
         dataset: Image dataset name.
+        training: Whether to apply training-time data augmentation.
 
     Returns:
         A torchvision transform pipeline.
@@ -167,18 +168,36 @@ def _image_transform(dataset: str) -> transforms.Compose:
         raise ValueError(f"Unknown image dataset: {dataset}")
 
     mean, std = normalization[dataset]
-    return transforms.Compose(
+
+    transform_list = []
+
+    # Apply augmentation only to CIFAR-10 training data.
+    if dataset == "cifar10" and training:
+        transform_list.extend(
+            [
+                transforms.RandomCrop(
+                    32,
+                    padding=4,
+                ),
+                transforms.RandomHorizontalFlip(),
+            ]
+        )
+
+    transform_list.extend(
         [
             transforms.ToTensor(),
             transforms.Normalize(mean=mean, std=std),
         ]
     )
 
+    return transforms.Compose(transform_list)
+
 
 def _load_image_training_dataset(
     dataset: str,
     data_dir: str | Path,
     download: bool,
+    training_transform: bool = False,
 ) -> Dataset:
     """Loads the official training split of an image dataset.
 
@@ -186,6 +205,7 @@ def _load_image_training_dataset(
         dataset: Image dataset name.
         data_dir: Dataset storage directory.
         download: Whether torchvision may download missing files.
+        training_transform: Whether to apply training augmentation.
 
     Returns:
         The official torchvision training dataset.
@@ -193,7 +213,7 @@ def _load_image_training_dataset(
     Raises:
         ValueError: If the dataset name is unsupported.
     """
-    transform = _image_transform(dataset)
+    transform = _image_transform(dataset, training=training_transform)
     root = str(Path(data_dir))
 
     constructors = {
@@ -265,13 +285,31 @@ def get_image_dataloaders(
     if not 0.0 < validation_fraction < 1.0:
         raise ValueError("validation_fraction must be in (0, 1).")
 
-    full_dataset = _load_image_training_dataset(
+    # full_dataset = _load_image_training_dataset(
+    #     dataset,
+    #     data_dir,
+    #     download,
+    # )
+    # labels = _extract_targets(full_dataset)
+    # all_indices = np.arange(len(full_dataset))
+
+    training_full_dataset = _load_image_training_dataset(
         dataset,
         data_dir,
         download,
+        training_transform=True,
     )
-    labels = _extract_targets(full_dataset)
-    all_indices = np.arange(len(full_dataset))
+
+    validation_full_dataset = _load_image_training_dataset(
+        dataset,
+        data_dir,
+        download,
+        training_transform=False,
+    )
+
+    labels = _extract_targets(training_full_dataset)
+
+    all_indices = np.arange(len(training_full_dataset))
 
     training_indices, validation_indices = train_test_split(
         all_indices,
@@ -297,19 +335,30 @@ def get_image_dataloaders(
     training_indices = np.asarray(training_indices)[selected_training_positions]
     validation_indices = np.asarray(validation_indices)[selected_validation_positions]
 
+    # training_dataset = Subset(
+    #     full_dataset,
+    #     training_indices.tolist(),
+    # )
+    # validation_dataset = Subset(
+    #     full_dataset,
+    #     validation_indices.tolist(),
+    # )
+
     training_dataset = Subset(
-        full_dataset,
+        training_full_dataset,
         training_indices.tolist(),
     )
+
     validation_dataset = Subset(
-        full_dataset,
+        validation_full_dataset,
         validation_indices.tolist(),
     )
 
     final_training_labels = _extract_targets(training_dataset)
     final_validation_labels = _extract_targets(validation_dataset)
 
-    sample, _ = full_dataset[0]
+    # sample, _ = full_dataset[0]
+    sample, _ = validation_full_dataset[0]
     input_shape = tuple(int(value) for value in sample.shape)
     data_spec = ClassificationDataSpec(
         name=dataset,
@@ -398,7 +447,7 @@ def get_image_test_dataloader(
     if batch_size <= 0:
         raise ValueError("batch_size must be positive.")
 
-    transform = _image_transform(dataset)
+    transform = _image_transform(dataset, training=False)
 
     constructors = {
         "mnist": datasets.MNIST,

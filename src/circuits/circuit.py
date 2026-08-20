@@ -22,6 +22,7 @@ from qiskit_machine_learning.connectors import TorchConnector
 from src.circuits.gate import Gate
 from src.circuits.decoder import Decoder
 from src.circuits.encoder import Encoder
+from src.utils.helpers import draw_network
 
 QUANTUM_INPUT_MODES = ["u3", "rx", "ry", "rz", "basis", "amplitude"]
 QUANTUM_OUTPUT_MODES = ["probs", "expval", "state"]
@@ -1081,5 +1082,6 @@ class CircuitGenome:
             )
             fig.savefig(path, dpi=200, bbox_inches="tight")
             plt.close(fig)
+            draw_network(out_dir, self.hybrid_model, self.genome_number)
         except Exception as e:
             logger.warning(f"Could not draw circuit: {e}")

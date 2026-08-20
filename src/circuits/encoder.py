@@ -304,6 +304,19 @@ class LinearEncoder(Encoder, torch.nn.Module):
         print(f"biases: {self.layer.bias}, type: {self.layer.bias.dtype}")
         """
 
+        # Flatten all dimensions except the batch dimension.
+        if inputs.ndim > 2:
+            inputs = torch.flatten(
+                inputs,
+                start_dim=1,
+            )
+
+        if inputs.shape[-1] != self.n_inputs:
+            raise ValueError(
+                f"LinearEncoder expected {self.n_inputs} input features, "
+                f"but received {inputs.shape[-1]}."
+            )
+
         # linear layer requires float32 values
         encoding = self.layer(inputs.float())
 
@@ -366,8 +379,8 @@ class CNNEncoder(Encoder, torch.nn.Module):
             raise ValueError("input_channels must be positive.")
         if input_height <= 0 or input_width <= 0:
             raise ValueError("Input height and width must be positive.")
-        if not conv_blocks:
-            raise ValueError("At least one convolution block is required.")
+        # if not conv_blocks:
+        #     raise ValueError("At least one convolution block is required.")
         if len(adaptive_pool_size) != 2:
             raise ValueError("adaptive_pool_size must contain height and width.")
         if not 0.0 <= dropout < 1.0:
@@ -471,6 +484,9 @@ class CNNEncoder(Encoder, torch.nn.Module):
         Returns:
             Feature extractor and final channel count.
         """
+        if not self.conv_blocks_config:
+            return torch.nn.Identity(), None
+
         layers: list[torch.nn.Module] = []
         in_channels = self.input_channels
 
@@ -541,8 +557,11 @@ class CNNEncoder(Encoder, torch.nn.Module):
         Returns:
             Projection head producing ``n_outputs`` values.
         """
-        pooled_height, pooled_width = self.adaptive_pool_size
-        flattened_size = final_channels * pooled_height * pooled_width
+        if final_channels is None:
+            flattened_size = self.n_inputs
+        else:
+            pooled_height, pooled_width = self.adaptive_pool_size
+            flattened_size = final_channels * pooled_height * pooled_width
 
         layers: list[torch.nn.Module] = [torch.nn.Flatten(start_dim=1)]
 

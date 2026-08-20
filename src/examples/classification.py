@@ -75,6 +75,7 @@ class ClassificationObjective(Objective):
         training_loss_function: Any,
         validation_loss_function: Any,
         metrics: dict[str, Metric],
+        device: str | None = None,
     ) -> None:
         """Initializes the classification objective.
 
@@ -91,6 +92,7 @@ class ClassificationObjective(Objective):
             training_loss_function=training_loss_function,
             validation_loss_function=validation_loss_function,
             metrics=metrics,
+            device=device,
         )
 
     def __call__(self, genome: CircuitGenome) -> None:
@@ -283,6 +285,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
     )
     parser.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        help=(
+            "PyTorch device to use for training, e.g. "
+            "'cpu', 'cuda', or 'cuda:0'. "
+            "Defaults to CUDA when available."
+        ),
+    )
+    parser.add_argument(
         "--num_workers",
         type=int,
         default=0,
@@ -399,10 +411,18 @@ def main() -> None:
     logger.add(sys.stdout, level=args.logging_level)
     logger.add(os.path.join(args.out_dir, "run.log"))
 
+    device = (
+        args.device
+        if args.device is not None
+        else ("cuda" if torch.cuda.is_available() else "cpu")
+    )
+
+    logger.info("Using PyTorch device: {}", device)
+
     training_loader, validation_loader = load_data(args)
 
-    if training_loader.is_image and args.encoding != "cnn":
-        parser.error("Image datasets require --encoding cnn in this implementation.")
+    # if training_loader.is_image and args.encoding != "cnn":
+    #     parser.error("Image datasets require --encoding cnn in this implementation.")
     if not training_loader.is_image and args.encoding == "cnn":
         parser.error("CNN encoding is only valid for image datasets.")
 
@@ -421,6 +441,7 @@ def main() -> None:
             reduction="mean",
         ),
         metrics=metrics,
+        device=args.device,
     )
 
     n_encoder_outputs = args.input_qubits
@@ -432,7 +453,7 @@ def main() -> None:
         n_decoder_inputs = 2**args.output_qubits
 
     encoder_config = None
-    if training_loader.is_image:
+    if training_loader.is_image and args.encoding == "cnn":
         channels, height, width = training_loader.input_shape
 
         encoder_config = load_encoder_config(args.encoder_config)
