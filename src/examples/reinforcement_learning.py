@@ -79,6 +79,7 @@ ENV_IDS: dict[str, str] = {
     "frozenlake": "FrozenLake-v1",
     "pendulum": "Pendulum-v1",
     "hopper": "Hopper-v5",
+    "walker2d": "Walker2d-v5",
     "halfcheetah": "HalfCheetah-v5",
     "ant": "Ant-v5",
     "humanoid": "Humanoid-v5",
@@ -91,7 +92,7 @@ ENV_IDS: dict[str, str] = {
 #: :func:`make_continuous_environment` rather than hardcoded, since these
 #: differ across Gymnasium versions (e.g. Ant/Humanoid observation sizes).
 CONTINUOUS_ENVS: frozenset[str] = frozenset(
-    {"pendulum", "hopper", "halfcheetah", "ant", "humanoid"}
+    {"pendulum", "hopper", "walker2d", "halfcheetah", "ant", "humanoid"}
 )
 
 #: All environment names understood by :func:`make_environment`, in the order
@@ -152,7 +153,7 @@ def make_environment(name: str, **kwargs) -> RLEnvironment:
             are ``"cartpole"``, ``"acrobot"``, ``"mountaincar"`` and
             ``"frozenlake"``; the continuous (``Box``-action) tasks are the
             members of :data:`CONTINUOUS_ENVS` (``"pendulum"``, ``"hopper"``,
-            ``"halfcheetah"``, ``"ant"``, ``"humanoid"``).
+            ``"walker2d"``, ``"halfcheetah"``, ``"ant"``, ``"humanoid"``).
         **kwargs: Environment-specific options (e.g. ``map_name`` and
             ``is_slippery`` for FrozenLake).
 
@@ -329,14 +330,14 @@ class ReinforcementLearningObjective(Objective):
             "eval_return_mean": validation_metrics["return_mean"],
             "eval_return_std": validation_metrics["return_std"],
             "train_return_mean": training_metrics["return_mean"],
-            "train_return_std": training_metrics["return_std"],
+            "best_episode_return": training_metrics["best_episode_return"],
             "env_id": self.environment.env_id,
         }
 
         logger.info(
             f"[{genome.genome_number:04d}] "
             f"train_return_mean={genome.fitness['train_return_mean']:.2f} "
-            f"train_return_std={genome.fitness['train_return_std']:.2f} "
+            f"best_episode_return={genome.fitness['best_episode_return']:.2f} "
             f"eval_return_mean={genome.fitness['eval_return_mean']:.2f} "
             f"eval_return_std={genome.fitness['eval_return_std']:.2f} "
             f"env={self.environment.env_id}"
