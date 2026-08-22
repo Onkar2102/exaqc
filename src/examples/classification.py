@@ -463,7 +463,7 @@ def main() -> None:
     if args.quantum_input_mode == "u3":
         n_encoder_outputs *= 3
     elif args.quantum_input_mode == "amplitude":
-        n_encoder_outputs = 2 ** n_encoder_outputs
+        n_encoder_outputs = 2**n_encoder_outputs
 
     n_decoder_inputs = args.output_qubits
     if args.quantum_output_mode == "probs":
