@@ -21,6 +21,7 @@ from src.circuits.gate import Gate
 from src.circuits.decoder import Decoder
 from src.circuits.encoder import Encoder
 from src.utils.helpers import draw_network
+from src.dropout.quantum_dropout import apply_qubit_readout_dropout
 
 QUANTUM_INPUT_MODES = ["u3", "rx", "ry", "rz", "basis", "amplitude"]
 QUANTUM_OUTPUT_MODES = ["probs", "expval", "state"]
@@ -596,6 +597,30 @@ class CircuitGenome:
                 assert x.shape[-1] == n_quantum_inputs
 
                 x = self.quantum_layer(x)
+
+                # TODO: Need to implement masking dropped qubits and remove qubit protection
+                dropout_qubits = getattr(
+                    self,
+                    "dropout_qubits",
+                    set(),
+                )
+                output_qubits = getattr(
+                    self,
+                    "output_qubits",
+                    [],
+                )
+                output_mode = getattr(
+                    self,
+                    "quantum_output_mode",
+                    "expval",
+                )
+                if dropout_qubits:
+                    x = apply_qubit_readout_dropout(
+                        quantum_output=x,
+                        output_qubits=output_qubits,
+                        dropped_qubits=dropout_qubits,
+                        output_mode=output_mode,
+                    )
 
                 # PennyLane may return [batch_size] for one quantum output.
                 if n_quantum_outputs == 1:
