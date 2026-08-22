@@ -32,6 +32,10 @@ def initialize_decoder(
             to reduce its input tensor to.
     """
 
+    logger.info(
+        f"creating {decoding_str} decoder with n_inputs: {n_inputs} and n_outputs: {n_outputs}"
+    )
+
     decoder = None
 
     if decoding_str == "clipped":

@@ -9,14 +9,18 @@ from __future__ import annotations
 import torch
 
 from torch import Tensor
-from torch.distributions import Categorical
 
 from src.circuits.circuit import CircuitGenome
 from src.trainer.reinforcement_trainer import (
     RLEnvironment,
     ReinforcementLearningTrainer,
     RLHyperparameters,
+    action_distribution,
     discounted_returns,
+    distribution_entropy,
+    distribution_log_prob,
+    split_policy_value,
+    to_env_action,
 )
 
 
@@ -74,15 +78,17 @@ class ActorCriticTrainer(ReinforcementLearningTrainer):
 
         for _ in range(hp.max_steps):
             output = genome.forward(environment.encode(observation))
-            logits, value = self.split_policy_value(output, environment.n_actions)
-            distribution = Categorical(logits=logits)
+            part, value = split_policy_value(output, environment)
+            distribution = action_distribution(part, environment)
             action = distribution.sample()
 
-            log_probs.append(distribution.log_prob(action))
-            entropies.append(distribution.entropy())
+            log_probs.append(distribution_log_prob(distribution, action))
+            entropies.append(distribution_entropy(distribution))
             values.append(value)
 
-            observation, reward, terminated, truncated, _ = env.step(int(action.item()))
+            observation, reward, terminated, truncated, _ = env.step(
+                to_env_action(action, environment)
+            )
             rewards.append(float(reward))
             episode_return += float(reward)
             if terminated or truncated:

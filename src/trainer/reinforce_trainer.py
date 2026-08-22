@@ -9,14 +9,18 @@ from __future__ import annotations
 import torch
 
 from torch import Tensor
-from torch.distributions import Categorical
 
 from src.circuits.circuit import CircuitGenome
 from src.trainer.reinforcement_trainer import (
     RLEnvironment,
     ReinforcementLearningTrainer,
     RLHyperparameters,
+    action_distribution,
     discounted_returns,
+    distribution_entropy,
+    distribution_log_prob,
+    policy_output,
+    to_env_action,
 )
 
 
@@ -65,14 +69,16 @@ class ReinforceTrainer(ReinforcementLearningTrainer):
         episode_return = 0.0
 
         for _ in range(hp.max_steps):
-            logits = self.policy_logits(genome, environment, observation)
-            distribution = Categorical(logits=logits)
+            part = policy_output(genome, environment, observation)
+            distribution = action_distribution(part, environment)
             action = distribution.sample()
 
-            log_probs.append(distribution.log_prob(action))
-            entropies.append(distribution.entropy())
+            log_probs.append(distribution_log_prob(distribution, action))
+            entropies.append(distribution_entropy(distribution))
 
-            observation, reward, terminated, truncated, _ = env.step(int(action.item()))
+            observation, reward, terminated, truncated, _ = env.step(
+                to_env_action(action, environment)
+            )
             rewards.append(float(reward))
             episode_return += float(reward)
             if terminated or truncated:

@@ -37,13 +37,30 @@ class QLearningTrainer(ReinforcementLearningTrainer):
     * Q-learning: ``y = r + gamma * (1 - done) * max_a' Q(s', a')``
     * SARSA:      ``y = r + gamma * (1 - done) * Q(s', a'_epsilon)``
 
+    Because it enumerates actions (argmax / epsilon-greedy over ``Q(s, .)``),
+    this trainer is discrete-only: it sets ``supports_continuous = False`` and
+    :meth:`~src.trainer.reinforcement_trainer.ReinforcementLearningTrainer.train`
+    raises if it is paired with a continuous environment.
+
     Args:
         sarsa: If True, use the on-policy SARSA target; otherwise use the
             off-policy Q-learning (max) target.
         **kwargs: Forwarded to :class:`ReinforcementLearningTrainer`.
     """
 
-    def __init__(self, *, sarsa: bool = False, **kwargs: Any):
+    #: Value-based action selection is discrete-only (argmax / epsilon-greedy).
+    supports_continuous: bool = False
+
+    def __init__(self, *, sarsa: bool = False, **kwargs: Any) -> None:
+        """Initializes the value-based trainer.
+
+        Args:
+            sarsa: If True, use the on-policy SARSA target; otherwise use the
+                off-policy Q-learning (max) target.
+            **kwargs: Forwarded to
+                :class:`~src.trainer.reinforcement_trainer.ReinforcementLearningTrainer`.
+        """
+
         super().__init__(**kwargs)
         self.sarsa = sarsa
 

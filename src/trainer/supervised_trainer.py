@@ -178,6 +178,11 @@ class SupervisedTrainer:
         Returns:
             A dictionary from each metric name to the metric value calculated
             over the validation data.
+
+        Raises:
+            ValueError: If the model's predictions are not 2-D
+                ``[batch_size, n_classes]``, or if the prediction and target
+                batch sizes differ.
         """
         is_training = optimizer is not None
         genome.hybrid_model.train() if is_training else genome.hybrid_model.eval()
@@ -251,8 +256,9 @@ class SupervisedTrainer:
         specifications.
 
         Args:
-            genome: is the CircuitGenome to train. This method will initialize its
-                self.circuit field so it can be trained with pytorch.
+            genome: is the CircuitGenome to train. This method will initialize
+                its ``hybrid_model`` (via ``genome.initialize_model()``) so it
+                can be trained with pytorch.
         """
         genome.initialize_model()
         genome.hybrid_model.to(self.device)
@@ -266,7 +272,7 @@ class SupervisedTrainer:
         genome.metadata["validation_epoch_metrics"] = []
 
         n_trainable_parameters = sum(
-            p.numel() for p in genome.hybrid_model.parameters() if p.requires_grad
+            p.numel() for p in genome.parameters() if p.requires_grad
         )
         genome.metadata["n_trainable_parameters"] = n_trainable_parameters
 
@@ -298,14 +304,8 @@ class SupervisedTrainer:
 
             return
 
-        # optimizer = torch.optim.Adam(
-        #     genome.hybrid_model.parameters(),
-        #     lr=learning_rate,
-        #     weight_decay=float(hyperparameters.get("weight_decay", 0.0)),
-        # )
-
-        optimizer = torch.optim.AdamW(
-            genome.hybrid_model.parameters(),
+        optimizer = torch.optim.Adam(
+            genome.parameters(),
             lr=learning_rate,
             weight_decay=float(hyperparameters.get("weight_decay", 5e-04)),
         )
@@ -321,10 +321,7 @@ class SupervisedTrainer:
         best_loss = math.inf
         best_epoch = 0
         improvement_cutoff = int(hyperparameters.get("improvement_cutoff", 2))
-        best_parameters = {
-            name: tensor.detach().cpu().clone()
-            for name, tensor in genome.hybrid_model.state_dict().items()
-        }
+        best_parameters = genome.clone_state_dict()
 
         for epoch in range(epochs):
             training_metric_results = self.get_metrics(
@@ -375,11 +372,7 @@ class SupervisedTrainer:
 
                 # get a copy of the current state dict of the hybrid model, this will be
                 # all the weights
-                with torch.no_grad():
-                    best_parameters = {
-                        name: tensor.detach().cpu().clone()
-                        for name, tensor in (genome.hybrid_model.state_dict().items())
-                    }
+                best_parameters = genome.clone_state_dict()
             elif epoch - best_epoch > improvement_cutoff:
                 logger.info(
                     "Stopping at epoch {} because the last improvement "
@@ -396,7 +389,7 @@ class SupervisedTrainer:
         )
 
         # set the genome's parameters to the ones from the best validation loss
-        genome.set_parameters(best_parameters)
+        genome.set_state_dict(best_parameters)
 
         return
 
