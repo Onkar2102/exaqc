@@ -36,6 +36,7 @@ import sys
 
 import numpy as np
 
+import gymnasium as gym
 from loguru import logger
 
 from src.circuits.circuit import (
@@ -66,6 +67,79 @@ from src.trainer.rl_trainer_registry import TRAINER_REGISTRY
 # ---------------------------------------------------------------------
 
 
+#: The single source of truth mapping every supported friendly ``--env`` name
+#: to its Gymnasium id, in the order the names are offered on the command line.
+#: Both the discrete and continuous tasks live here, so :data:`ENV_CHOICES`
+#: (the CLI choices) and ``src.examples.visualize_rl``'s reverse ``env_id ->
+#: name`` lookup are derived from this one mapping.
+ENV_IDS: dict[str, str] = {
+    "cartpole": "CartPole-v1",
+    "acrobot": "Acrobot-v1",
+    "mountaincar": "MountainCar-v0",
+    "frozenlake": "FrozenLake-v1",
+    "pendulum": "Pendulum-v1",
+    "hopper": "Hopper-v5",
+    "walker2d": "Walker2d-v5",
+    "halfcheetah": "HalfCheetah-v5",
+    "ant": "Ant-v5",
+    "humanoid": "Humanoid-v5",
+}
+
+#: The subset of :data:`ENV_IDS` that are continuous (``Box``-action) tasks.
+#: Pendulum is classic control; the rest are MuJoCo tasks (require
+#: ``gymnasium[mujoco]``). Their observation size, action dimensionality, and
+#: action bounds are read from the environment at build time by
+#: :func:`make_continuous_environment` rather than hardcoded, since these
+#: differ across Gymnasium versions (e.g. Ant/Humanoid observation sizes).
+CONTINUOUS_ENVS: frozenset[str] = frozenset(
+    {"pendulum", "hopper", "walker2d", "halfcheetah", "ant", "humanoid"}
+)
+
+#: All environment names understood by :func:`make_environment`, in the order
+#: they are offered on the command line (derived from :data:`ENV_IDS`).
+ENV_CHOICES: tuple[str, ...] = tuple(ENV_IDS)
+
+
+def make_continuous_environment(env_id: str, **env_kwargs) -> RLEnvironment:
+    """Builds a continuous-action :class:`RLEnvironment` by probing the env.
+
+    The environment is instantiated once to read its observation size, action
+    dimensionality, and per-dimension action bounds directly from its Gym
+    spaces -- so the ``RLEnvironment`` is always consistent with the installed
+    Gymnasium/MuJoCo version rather than relying on hardcoded dimensions.
+
+    Args:
+        env_id: Gymnasium id of a continuous ``Box``-action environment.
+        **env_kwargs: Extra keyword arguments forwarded to ``gym.make`` (also
+            stored on the returned environment so trainers re-create it
+            identically).
+
+    Returns:
+        A configured continuous :class:`RLEnvironment`.
+    """
+
+    probe = gym.make(env_id, **env_kwargs)
+    try:
+        n_observation_features = int(np.prod(probe.observation_space.shape))
+        action_space = probe.action_space
+        action_dim = int(np.prod(action_space.shape))
+        action_low = np.asarray(action_space.low, dtype=np.float32).reshape(-1)
+        action_high = np.asarray(action_space.high, dtype=np.float32).reshape(-1)
+    finally:
+        probe.close()
+
+    return RLEnvironment(
+        env_id=env_id,
+        n_actions=action_dim,
+        n_observation_features=n_observation_features,
+        obs_encoder=box_observation_encoder(),
+        env_kwargs=env_kwargs or None,
+        continuous=True,
+        action_low=action_low,
+        action_high=action_high,
+    )
+
+
 def make_environment(name: str, **kwargs) -> RLEnvironment:
     """Builds an :class:`RLEnvironment` for one of the supported tasks.
 
@@ -75,8 +149,11 @@ def make_environment(name: str, **kwargs) -> RLEnvironment:
     trainer-ready environment.
 
     Args:
-        name: Environment name (``"cartpole"``, ``"acrobot"``,
-            ``"mountaincar"`` or ``"frozenlake"``).
+        name: Environment name; one of :data:`ENV_CHOICES`. The discrete tasks
+            are ``"cartpole"``, ``"acrobot"``, ``"mountaincar"`` and
+            ``"frozenlake"``; the continuous (``Box``-action) tasks are the
+            members of :data:`CONTINUOUS_ENVS` (``"pendulum"``, ``"hopper"``,
+            ``"walker2d"``, ``"halfcheetah"``, ``"ant"``, ``"humanoid"``).
         **kwargs: Environment-specific options (e.g. ``map_name`` and
             ``is_slippery`` for FrozenLake).
 
@@ -87,10 +164,20 @@ def make_environment(name: str, **kwargs) -> RLEnvironment:
         ValueError: If ``name`` is not a supported environment.
     """
 
+    if name not in ENV_IDS:
+        raise ValueError(f"Unknown environment: {name!r}")
+
+    env_id = ENV_IDS[name]
+
+    if name in CONTINUOUS_ENVS:
+        # Continuous Box-action tasks (Pendulum + MuJoCo); only the policy-
+        # gradient trainers (reinforce, actor_critic, ppo) support these.
+        return make_continuous_environment(env_id)
+
     if name == "cartpole":
         # 4 continuous observation features, 2 discrete actions.
         return RLEnvironment(
-            env_id="CartPole-v1",
+            env_id=env_id,
             n_actions=2,
             n_observation_features=4,
             obs_encoder=box_observation_encoder(scales=np.array([2.4, 3.0, 0.21, 3.0])),
@@ -99,7 +186,7 @@ def make_environment(name: str, **kwargs) -> RLEnvironment:
     if name == "acrobot":
         # 6 continuous observation features, 3 discrete actions.
         return RLEnvironment(
-            env_id="Acrobot-v1",
+            env_id=env_id,
             n_actions=3,
             n_observation_features=6,
             obs_encoder=box_observation_encoder(),
@@ -108,30 +195,28 @@ def make_environment(name: str, **kwargs) -> RLEnvironment:
     if name == "mountaincar":
         # 2 continuous observation features, 3 discrete actions.
         return RLEnvironment(
-            env_id="MountainCar-v0",
+            env_id=env_id,
             n_actions=3,
             n_observation_features=2,
             obs_encoder=box_observation_encoder(scales=np.array([1.2, 0.07])),
         )
 
-    if name == "frozenlake":
-        map_name = kwargs.get("map_name", "4x4")
-        is_slippery = kwargs.get("is_slippery", False)
-        n_states = 16 if map_name == "4x4" else 64
-        # Discrete integer observation -> one-hot; 4 discrete actions.
-        # A non-slippery FrozenLake (fixed map, fixed start, deterministic
-        # transitions) is fully deterministic, so greedy evaluation only needs
-        # a single episode.
-        return RLEnvironment(
-            env_id="FrozenLake-v1",
-            n_actions=4,
-            n_observation_features=n_states,
-            obs_encoder=onehot_observation_encoder(n_states),
-            env_kwargs={"map_name": map_name, "is_slippery": is_slippery},
-            deterministic=not is_slippery,
-        )
-
-    raise ValueError(f"Unknown environment: {name!r}")
+    # frozenlake (the only remaining discrete task)
+    map_name = kwargs.get("map_name", "4x4")
+    is_slippery = kwargs.get("is_slippery", False)
+    n_states = 16 if map_name == "4x4" else 64
+    # Discrete integer observation -> one-hot; 4 discrete actions.
+    # A non-slippery FrozenLake (fixed map, fixed start, deterministic
+    # transitions) is fully deterministic, so greedy evaluation only needs
+    # a single episode.
+    return RLEnvironment(
+        env_id=env_id,
+        n_actions=4,
+        n_observation_features=n_states,
+        obs_encoder=onehot_observation_encoder(n_states),
+        env_kwargs={"map_name": map_name, "is_slippery": is_slippery},
+        deterministic=not is_slippery,
+    )
 
 
 def build_trainer(algo: str, **overrides) -> ReinforcementLearningTrainer:
@@ -228,9 +313,13 @@ class ReinforcementLearningObjective(Objective):
         training_metrics = genome.metadata["best_training_metrics"]
         validation_metrics = genome.metadata["best_validation_metrics"]
 
+        """
         mean_return = (
             validation_metrics["return_mean"] + training_metrics["return_mean"]
         ) / 2.0
+        """
+        # mean_return = validation_metrics["return_mean"]
+        mean_return = training_metrics["return_mean"]
 
         # "loss" (lower is better) drives population sorting via compare();
         # the remaining keys mirror the RL fields used by save_circuit's tag
@@ -238,10 +327,10 @@ class ReinforcementLearningObjective(Objective):
         genome.fitness = {
             "loss": -mean_return,
             "target_metric": mean_return,
-            "eval_return_mean": mean_return,
+            "eval_return_mean": validation_metrics["return_mean"],
             "eval_return_std": validation_metrics["return_std"],
-            "best_episode_return": training_metrics["best_episode_return"],
             "train_return_mean": training_metrics["return_mean"],
+            "best_episode_return": training_metrics["best_episode_return"],
             "env_id": self.environment.env_id,
         }
 
@@ -263,7 +352,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument(
         "--env",
-        choices=["cartpole", "acrobot", "mountaincar", "frozenlake"],
+        choices=list(ENV_CHOICES),
         required=True,
     )
     p.add_argument(
@@ -370,6 +459,13 @@ if __name__ == "__main__":
     p.add_argument("--value_coef", type=float, default=0.5)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--log_every", type=int, default=10)
+    p.add_argument(
+        "--ema_alpha",
+        type=float,
+        default=0.05,
+        help="Smoothing factor for the exponential moving average of episode "
+        "returns reported as the training return mean.",
+    )
 
     # PPO extras
     p.add_argument("--rollout_steps", type=int, default=512)
@@ -431,6 +527,7 @@ if __name__ == "__main__":
         eval_episodes=args.eval_episodes,
         seed=args.seed,
         log_every=args.log_every,
+        ema_alpha=args.ema_alpha,
         entropy_coef=args.entropy_coef,
         baseline=args.baseline,
         value_coef=args.value_coef,
@@ -443,6 +540,15 @@ if __name__ == "__main__":
         epsilon_min=args.epsilon_min,
         epsilon_decay=args.epsilon_decay,
     )
+
+    # Value-based trainers (q_learning / sarsa) enumerate discrete actions and
+    # cannot drive a continuous Box-action environment; fail fast with a clear
+    # message rather than deep inside the first weight update.
+    if environment.continuous and not trainer.supports_continuous:
+        p.error(
+            f"algorithm {args.algo!r} does not support the continuous "
+            f"environment {args.env!r}; use reinforce, actor_critic, or ppo."
+        )
 
     objective = ReinforcementLearningObjective(environment=environment, trainer=trainer)
 
@@ -469,6 +575,7 @@ if __name__ == "__main__":
         "epsilon_decay": args.epsilon_decay,
         "seed": args.seed,
         "log_every": args.log_every,
+        "ema_alpha": args.ema_alpha,
     }
 
     target = args.target
@@ -481,10 +588,14 @@ if __name__ == "__main__":
     if args.quantum_input_mode == "u3":
         n_encoder_outputs *= 3
 
+    # The policy occupies environment.n_policy_outputs decoder outputs: one per
+    # action for a discrete space, or a mean + log-std per action dimension for
+    # a continuous space. Size the quantum output register so it has at least as
+    # many features as the policy needs.
     n_output_registers = (
         int(args.output_qubits)
         if args.output_qubits is not None
-        else max(1, int(np.ceil(np.log2(environment.n_actions))))
+        else max(1, int(np.ceil(np.log2(environment.n_policy_outputs))))
     )
     n_decoder_inputs = n_output_registers
     if args.quantum_output_mode == "probs":
@@ -494,7 +605,7 @@ if __name__ == "__main__":
     # output holding the scalar state value, so the value function is part of
     # the genome (evolved by crossover, preserved by serialization) rather
     # than a separate head.
-    n_decoder_outputs = environment.n_actions + trainer.n_value_outputs
+    n_decoder_outputs = environment.n_policy_outputs + trainer.n_value_outputs
 
     # encoder: encoded observation (n_observation_features) -> quantum inputs
     initial_encoder = initialize_encoder(

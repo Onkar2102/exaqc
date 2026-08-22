@@ -17,7 +17,7 @@ that crashed for pennylane, and a best-parameter snapshot that only
 exercised here is now expected to pass.
 
 Change-detection note: the trainer writes the best epoch's weights back into
-the genome through ``CircuitGenome.set_parameters`` (encoder/decoder tensors
+the genome through ``CircuitGenome.set_state_dict`` (encoder/decoder tensors
 copied in place, quantum weights pushed back into ``gate.parameters``). These
 tests therefore snapshot the encoder/decoder parameter tensors and the
 gate-parameter floats *before* training and assert at least one of them moved
