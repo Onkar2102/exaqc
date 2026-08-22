@@ -76,7 +76,7 @@ def test_qubit_dropout_zero_rate_drops_nothing():
     )
 
     dropped = qubit_dropout(
-        genome,
+        genome.qubits,
         dropout_rate=0.0,
     )
 
@@ -97,11 +97,12 @@ def test_qubit_dropout_full_rate_drops_all_qubits():
     )
 
     dropped = qubit_dropout(
-        genome,
+        genome.qubits,
         dropout_rate=1.0,
     )
 
-    assert ("q", 2) not in dropped
+    # assert ("q", 2) not in dropped
+    assert dropped == set(genome.qubits)
 
 
 def test_gate_dropout_full_rate_drops_all_enabled_gates(gates):

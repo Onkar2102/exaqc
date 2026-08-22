@@ -133,7 +133,7 @@ class SupervisedTrainer:
 
         elif dropout_type == "qubit":
             genome.dropout_qubits = qubit_dropout(
-                genome,
+                genome.qubits,
                 dropout_rate,
             )
 
@@ -204,9 +204,18 @@ class SupervisedTrainer:
                     optimizer.zero_grad(set_to_none=True)
 
                     self._apply_quantum_dropout(genome)
+                    if genome.dropout_qubits:
+                        genome.hybrid_model.dropout_qubits = genome.dropout_qubits
+                        genome.hybrid_model.output_qubits = genome.output_qubits
+                        genome.hybrid_model.quantum_output_mode = (
+                            genome.hyperparameters["quantum_output_mode"]
+                        )
+
                 else:
                     # Validation/test always uses the complete evolved circuit.
                     genome.clear_quantum_dropout()
+                    if genome.dropout_qubits:
+                        genome.hybrid_model.dropout_qubits = set()
 
                 predictions = genome.forward(x_batch)
 
@@ -238,6 +247,8 @@ class SupervisedTrainer:
                             metric.accumulate(prediction.float(), target.long())
 
         genome.clear_quantum_dropout()
+        if hasattr(genome.hybrid_model, "dropout_qubits"):
+            genome.hybrid_model.dropout_qubits = set()
 
         metric_results: dict[str, Any] = {
             "loss": (total_loss / total_samples if total_samples else float("nan"))
@@ -305,9 +316,9 @@ class SupervisedTrainer:
             return
 
         optimizer = torch.optim.Adam(
-            genome.parameters(),
+            genome.hybrid_model.parameters(),
             lr=learning_rate,
-            weight_decay=float(hyperparameters.get("weight_decay", 5e-04)),
+            weight_decay=float(hyperparameters.get("weight_decay", 0.0)),
         )
 
         # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
