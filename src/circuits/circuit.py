@@ -124,6 +124,8 @@ class CircuitGenome:
             return len(self.input_indexes) * 3
         elif input_mode in ["rx", "ry", "rz"]:
             return len(self.input_indexes)
+        elif input_mode == "amplitude":
+            return 2 ** len(self.input_indexes)
         else:
             raise ValueError(f"unknown quantum_input_mode={input_mode}")
 

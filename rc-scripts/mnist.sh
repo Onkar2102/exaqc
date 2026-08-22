@@ -8,7 +8,7 @@
 #SBATCH --ntasks=6
 #SBATCH --ntasks-per-node=6
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=64GB
+#SBATCH --mem=32GB
 #SBATCH --gres=gpu:a100:1
 
 spack env activate default-ml-x86_64-25052701
@@ -16,8 +16,9 @@ spack env activate default-ml-x86_64-25052701
 source .venv/bin/activate
 
 DATASET="mnist"
-QUBITS=4
+QUBITS=6
 ENCODING="cnn"
+QUANTUM_ENC="amplitude"
 BATCH_SIZE=32
 
 # if [[ "$DATASET" == "mnist" || "$DATASET" == "fashion_mnist" ]]; then
@@ -41,7 +42,7 @@ srun python3.11 -m src.examples.classification \
     --encoder_config configs/mnist_fc.json \
     --input_qubits $QUBITS \
     --output_qubits $QUBITS \
-    --quantum_input_mode ry \
+    --quantum_input_mode $QUANTUM_ENC \
     --quantum_output_mode probs \
     --device cuda \
     --batch_size $BATCH_SIZE \
@@ -52,6 +53,6 @@ srun python3.11 -m src.examples.classification \
     --mutation_strategy uniform 1 5 \
     --parent_strategy uniform 2 5 \
     --seed 42 \
-    --out_dir artifacts/${DATASET}_${ENCODING}_fc \
+    --out_dir artifacts/${DATASET}_${ENCODING}_${QUANTUM_ENC}_q${QUBITS}_b${BATCH_SIZE} \
     steady_state \
     --max_population_size 30
