@@ -252,12 +252,6 @@ class IdentityEncoder(Encoder):
                 inputs are being set
         """
 
-        if inputs.shape[-1] < self.n_outputs:
-            inputs = torch.nn.functional.pad(
-                inputs,
-                (0, self.n_outputs - inputs.shape[-1]),
-            )
-
         return inputs
 
     def copy(self) -> Encoder:

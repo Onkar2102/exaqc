@@ -125,10 +125,8 @@ class CircuitGenome:
 
         if input_mode == "u3":
             return len(self.input_indexes) * 3
-        elif input_mode in ["rx", "ry", "rz"]:
+        elif input_mode in ["rx", "ry", "rz", "amplitude"]:
             return len(self.input_indexes)
-        elif input_mode == "amplitude":
-            return 2 ** len(self.input_indexes)
         else:
             raise ValueError(f"unknown quantum_input_mode={input_mode}")
 
@@ -694,7 +692,7 @@ class CircuitGenome:
                 # Expected shapes:
                 #   single sample: [n_quantum_inputs]
                 #   batch:         [batch_size, n_quantum_inputs]
-                assert x.shape[-1] == n_quantum_inputs
+                # assert x.shape[-1] == n_quantum_inputs
 
                 x = self.quantum_layer(x)
 

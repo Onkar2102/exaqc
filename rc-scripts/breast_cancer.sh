@@ -19,6 +19,7 @@ QUBITS=5
 ENCODING="identity"
 QUANTUM_ENC="amplitude"
 BATCH_SIZE=8
+N_GENOMES=2000
 
 srun python3 -m src.examples.classification \
     --dataset $DATASET \
@@ -34,10 +35,10 @@ srun python3 -m src.examples.classification \
     --epochs 100 \
     --learning_rate 0.001 \
     --weight_decay 0.0005 \
-    --number_genomes 1000 \
+    --number_genomes $N_GENOMES \
     --mutation_strategy uniform 1 5 \
     --parent_strategy uniform 2 5 \
     --seed 42 \
-    --out_dir artifacts/${DATASET}_${ENCODING}_${QUANTUM_ENC}_q${QUBITS}_b${BATCH_SIZE} \
+    --out_dir artifacts/${DATASET}_${ENCODING}_${QUANTUM_ENC}_g${N_GENOMES}_q${QUBITS}_b${BATCH_SIZE} \
     steady_state \
     --max_population_size 30
