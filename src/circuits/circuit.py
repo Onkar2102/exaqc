@@ -645,7 +645,7 @@ class CircuitGenome:
                 f"Unknown target {self.target} for circuit genome model generation."
             )
 
-        n_quantum_inputs = self.n_quantum_inputs()
+        n_quantum_inputs = self.n_quantum_inputs()  # noqa
         n_quantum_outputs = self.n_quantum_outputs()
 
         class HybridModel(torch.nn.Module):
