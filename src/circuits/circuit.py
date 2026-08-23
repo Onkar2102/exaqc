@@ -23,6 +23,7 @@ from src.circuits.gate import Gate
 from src.circuits.decoder import Decoder
 from src.circuits.encoder import Encoder
 from src.utils.helpers import draw_network
+from src.dropout.quantum_dropout import apply_qubit_readout_dropout
 
 QUANTUM_INPUT_MODES = ["u3", "rx", "ry", "rz", "basis", "amplitude"]
 QUANTUM_OUTPUT_MODES = ["probs", "expval", "state"]
@@ -104,6 +105,11 @@ class CircuitGenome:
         # genome is used for training or validation
         self.torch_model = None
         self.torch_parameters = None
+
+        # Temporary training-only quantum dropout mask.
+        # Gate innovation numbers in this set are skipped during the forward pass.
+        self.dropout_gate_innovations: set[int] = set()
+        self.dropout_qubits: set[tuple[str, int]] = set()
 
     def n_quantum_inputs(self) -> int:
         """
@@ -690,6 +696,30 @@ class CircuitGenome:
 
                 x = self.quantum_layer(x)
 
+                # TODO: Need to implement masking dropped qubits and remove qubit protection
+                dropout_qubits = getattr(
+                    self,
+                    "dropout_qubits",
+                    set(),
+                )
+                output_qubits = getattr(
+                    self,
+                    "output_qubits",
+                    [],
+                )
+                output_mode = getattr(
+                    self,
+                    "quantum_output_mode",
+                    "expval",
+                )
+                if dropout_qubits:
+                    x = apply_qubit_readout_dropout(
+                        quantum_output=x,
+                        output_qubits=output_qubits,
+                        dropped_qubits=dropout_qubits,
+                        output_mode=output_mode,
+                    )
+
                 # PennyLane may return [batch_size] for one quantum output.
                 if n_quantum_outputs == 1:
                     if x.ndim == 1:
@@ -823,9 +853,13 @@ class CircuitGenome:
             self.sort_gates()
             offset = 0
             for gate in self.gates:
-                gate.add_to_pennylane_circuit(
-                    self.qubits, weights=weights, offset=offset
-                )
+
+                # Structural enable/disable is controlled by evolution.
+                # Dropout is temporary and only affects this forward pass.
+                if gate.enabled and not self.is_gate_dropped(gate):
+                    gate.add_to_pennylane_circuit(
+                        self.qubits, weights=weights, offset=offset
+                    )
                 offset += len(gate.parameters)
 
             if output_mode == "probs":
@@ -917,9 +951,12 @@ class CircuitGenome:
         offset = 0
         for gate in self.gates:
             # set each gate and its parameters using the weight vector
-            gate.add_to_qiskit_circuit(
-                register_dict, circuit, self.weight_vector, offset
-            )
+            # Structural enable/disable is controlled by evolution.
+            # Dropout is temporary and only affects this forward pass.
+            if gate.enabled and not self.is_gate_dropped(gate):
+                gate.add_to_qiskit_circuit(
+                    register_dict, circuit, self.weight_vector, offset
+                )
             offset += len(gate.parameters)
 
         for output_index, input_index in enumerate(self.output_indexes):
@@ -1085,3 +1122,18 @@ class CircuitGenome:
             draw_network(out_dir, self.hybrid_model, self.genome_number)
         except Exception as e:
             logger.warning(f"Could not draw circuit: {e}")
+
+    def clear_quantum_dropout(self) -> None:
+        """Clears temporary quantum dropout masks."""
+        self.dropout_gate_innovations.clear()
+        self.dropout_qubits.clear()
+
+    def is_gate_dropped(self, gate) -> bool:
+        """Returns whether a gate is dropped for the current forward pass."""
+        if gate.innovation_number in self.dropout_gate_innovations:
+            return True
+
+        if not set(gate.qubits).isdisjoint(self.dropout_qubits):
+            return True
+
+        return False

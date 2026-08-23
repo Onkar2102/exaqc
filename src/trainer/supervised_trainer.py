@@ -11,6 +11,13 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
 from src.circuits.circuit import CircuitGenome
+from src.dropout.quantum_dropout import (
+    gate_dropout,
+    rotation_dropout,
+    entangling_dropout,
+    qubit_dropout,
+    innovation_dropout,
+)
 
 
 class SupervisedTrainer:
@@ -80,6 +87,71 @@ class SupervisedTrainer:
         ):
             self.testing_loss_function.to(self.device)
 
+    def _apply_quantum_dropout(self, genome) -> None:
+        """Samples and applies the configured quantum dropout strategy.
+
+        Args:
+            genome: The CircuitGenome on which to apply dropout
+
+        Returns:
+            None
+        """
+        genome.clear_quantum_dropout()
+
+        dropout_type = genome.hyperparameters.get(
+            "quantum_dropout_type",
+            "none",
+        )
+
+        dropout_rate = float(
+            genome.hyperparameters.get(
+                "quantum_dropout_rate",
+                0.0,
+            )
+        )
+
+        if dropout_rate == 0.0 or dropout_type == "none":
+            return
+
+        if dropout_type == "gate":
+            genome.dropout_gate_innovations = gate_dropout(
+                genome.gates,
+                dropout_rate,
+            )
+
+        elif dropout_type == "rotation":
+            genome.dropout_gate_innovations = rotation_dropout(
+                genome.gates,
+                dropout_rate,
+            )
+
+        elif dropout_type == "entangling":
+            genome.dropout_gate_innovations = entangling_dropout(
+                genome.gates,
+                dropout_rate,
+            )
+
+        elif dropout_type == "qubit":
+            genome.dropout_qubits = qubit_dropout(
+                genome.qubits,
+                dropout_rate,
+            )
+
+        elif dropout_type == "innovation":
+            genome.dropout_gate_innovations = innovation_dropout(
+                genome.gates,
+                dropout_rate,
+                innovation_strength=float(
+                    genome.hyperparameters.get(
+                        "quantum_dropout_innovation_strength",
+                        0.5,
+                    )
+                ),
+            )
+
+        else:
+            raise ValueError(f"Unknown quantum dropout type: {dropout_type}")
+
     def get_metrics(
         self,
         genome: CircuitGenome,
@@ -131,6 +203,20 @@ class SupervisedTrainer:
                 if is_training:
                     optimizer.zero_grad(set_to_none=True)
 
+                    self._apply_quantum_dropout(genome)
+                    if genome.dropout_qubits:
+                        genome.hybrid_model.dropout_qubits = genome.dropout_qubits
+                        genome.hybrid_model.output_qubits = genome.output_qubits
+                        genome.hybrid_model.quantum_output_mode = (
+                            genome.hyperparameters["quantum_output_mode"]
+                        )
+
+                else:
+                    # Validation/test always uses the complete evolved circuit.
+                    genome.clear_quantum_dropout()
+                    if genome.dropout_qubits:
+                        genome.hybrid_model.dropout_qubits = set()
+
                 predictions = genome.forward(x_batch)
 
                 if predictions.ndim != 2:
@@ -159,6 +245,10 @@ class SupervisedTrainer:
                     for prediction, target in zip(predictions, y_batch):
                         for metric in self.metrics.values():
                             metric.accumulate(prediction.float(), target.long())
+
+        genome.clear_quantum_dropout()
+        if hasattr(genome.hybrid_model, "dropout_qubits"):
+            genome.hybrid_model.dropout_qubits = set()
 
         metric_results: dict[str, Any] = {
             "loss": (total_loss / total_samples if total_samples else float("nan"))
@@ -231,6 +321,14 @@ class SupervisedTrainer:
             weight_decay=float(hyperparameters.get("weight_decay", 0.0)),
         )
 
+        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer,
+        #     mode="min",
+        #     factor=0.5,
+        #     patience=3,
+        #     min_lr=1e-6,
+        # )
+
         best_loss = math.inf
         best_epoch = 0
         improvement_cutoff = int(hyperparameters.get("improvement_cutoff", 2))
@@ -270,6 +368,8 @@ class SupervisedTrainer:
             # TODO: try using the average of validation and training loss for fitness
             validation_loss = validation_metric_results["loss"]
             training_loss = training_metric_results["loss"]
+
+            # scheduler.step(validation_loss)
 
             avg_loss = (validation_loss + training_loss) / 2.0
 
@@ -326,6 +426,11 @@ class SupervisedTrainer:
             genome=genome,
             dataloader=self.testing_dataloader,
             loss_function=self.testing_loss_function,
+        )
+
+        logger.info(
+            "test metrics: {}",
+            test_metrics,
         )
 
         genome.metadata["testing_metrics"] = test_metrics

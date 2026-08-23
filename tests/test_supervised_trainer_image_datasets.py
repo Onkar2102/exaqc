@@ -348,6 +348,8 @@ def test_main_builds_cnn_encoder_for_image_data(
         "batch_size": 4,
         "quantum_input_mode": "u3",
         "quantum_output_mode": "probs",
+        "quantum_dropout_rate": 0.0,
+        "quantum_dropout_type": "none",
     }
 
 
