@@ -40,11 +40,20 @@ def rotation_dropout(
     """
     _validate_dropout_rate(dropout_rate)
 
+    rotation_gates = {
+        "rx",
+        "ry",
+        "rz",
+        "u",
+    }
+
     return {
         gate.innovation_number
         for gate in gates
         if (
-            gate.enabled and len(gate.parameters) > 0 and random.random() < dropout_rate
+            gate.enabled
+            and gate.method_name.lower() in rotation_gates
+            and random.random() < dropout_rate
         )
     }
 
