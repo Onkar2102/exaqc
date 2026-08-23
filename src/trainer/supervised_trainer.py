@@ -316,7 +316,7 @@ class SupervisedTrainer:
             return
 
         optimizer = torch.optim.Adam(
-            genome.hybrid_model.parameters(),
+            genome.parameters(),
             lr=learning_rate,
             weight_decay=float(hyperparameters.get("weight_decay", 0.0)),
         )
