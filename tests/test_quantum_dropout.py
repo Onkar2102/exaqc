@@ -18,12 +18,13 @@ class MockGate:
     def __init__(
         self,
         innovation_number: int,
-        *,
+        method_name: str = "x",
         enabled: bool = True,
         parameters: list[float] | None = None,
         qubits: list[tuple[str, int]] | None = None,
     ):
         self.innovation_number = innovation_number
+        self.method_name = method_name
         self.enabled = enabled
         self.parameters = [] if parameters is None else parameters
         self.qubits = [] if qubits is None else qubits
@@ -35,26 +36,31 @@ def gates() -> list[MockGate]:
     return [
         MockGate(
             10,
+            method_name="rx",
             parameters=[0.1],
             qubits=[("q", 0)],
         ),
         MockGate(
             20,
+            method_name="h",
             parameters=[],
             qubits=[("q", 1)],
         ),
         MockGate(
             30,
+            method_name="ry",
             parameters=[0.2],
             qubits=[("q", 0), ("q", 1)],
         ),
         MockGate(
             40,
+            method_name="cnot",
             parameters=[],
             qubits=[("q", 1), ("q", 2)],
         ),
         MockGate(
             50,
+            method_name="rz",
             enabled=False,
             parameters=[0.3],
             qubits=[("q", 2)],
