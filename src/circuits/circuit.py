@@ -125,8 +125,10 @@ class CircuitGenome:
 
         if input_mode == "u3":
             return len(self.input_indexes) * 3
-        elif input_mode in ["rx", "ry", "rz", "amplitude"]:
+        elif input_mode in ["rx", "ry", "rz"]:
             return len(self.input_indexes)
+        elif input_mode == "amplitude":
+            return 2 ** len(self.input_indexes)
         else:
             raise ValueError(f"unknown quantum_input_mode={input_mode}")
 
@@ -645,8 +647,10 @@ class CircuitGenome:
                 f"Unknown target {self.target} for circuit genome model generation."
             )
 
-        n_quantum_inputs = self.n_quantum_inputs()  # noqa
+        n_quantum_inputs = self.n_quantum_inputs()
         n_quantum_outputs = self.n_quantum_outputs()
+        quantum_input_mode = self.hyperparameters["quantum_input_mode"]
+        n_qubits = len(self.qubits)
 
         class HybridModel(torch.nn.Module):
             """A torch module chaining encoder -> quantum layer -> decoder.
@@ -692,7 +696,18 @@ class CircuitGenome:
                 # Expected shapes:
                 #   single sample: [n_quantum_inputs]
                 #   batch:         [batch_size, n_quantum_inputs]
-                # assert x.shape[-1] == n_quantum_inputs
+                if quantum_input_mode == "amplitude":
+                    assert n_qubits <= x.shape[-1] <= n_quantum_inputs, (
+                        f"Amplitude encoding supports at most "
+                        f"{n_quantum_inputs} inputs, and at least "
+                        f"{n_qubits} inputs, "
+                        f"but received {x.shape[-1]}."
+                    )
+                else:
+                    assert x.shape[-1] == n_quantum_inputs, (
+                        f"Expected {self.n_quantum_inputs} quantum inputs, "
+                        f"but received {x.shape[-1]}."
+                    )
 
                 x = self.quantum_layer(x)
 
