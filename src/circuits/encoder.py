@@ -251,7 +251,6 @@ class IdentityEncoder(Encoder):
             genome: the circuit genome whose quantum circuit
                 inputs are being set
         """
-
         return inputs
 
     def copy(self) -> Encoder:

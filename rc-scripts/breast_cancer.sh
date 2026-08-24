@@ -1,8 +1,8 @@
 #!/bin/bash -l
-#SBATCH -J iris
+#SBATCH -J breast_cancer
 #SBATCH -t 1-00:00:00
-#SBATCH -o ./outs/iris/output.o
-#SBATCH -e ./logs/iris/error.e
+#SBATCH -o ./outs/breast_cancer/output.o
+#SBATCH -e ./logs/breast_cancer/error.e
 #SBATCH -A cps -p tier3
 #SBATCH --nodes=1
 #SBATCH --ntasks=12
@@ -14,11 +14,12 @@ spack env activate default-ml-x86_64-25052701
 
 source .venv/bin/activate
 
-DATASET="iris"
-QUBITS=2
+DATASET="breast_cancer"
+QUBITS=5
 ENCODING="identity"
 QUANTUM_ENC="amplitude"
 BATCH_SIZE=8
+N_GENOMES=2000
 
 srun python3 -m src.examples.classification \
     --dataset $DATASET \
@@ -34,10 +35,10 @@ srun python3 -m src.examples.classification \
     --epochs 100 \
     --learning_rate 0.001 \
     --weight_decay 0.0005 \
-    --number_genomes 1000 \
+    --number_genomes $N_GENOMES \
     --mutation_strategy uniform 1 5 \
     --parent_strategy uniform 2 5 \
     --seed 42 \
-    --out_dir artifacts/${DATASET}_${ENCODING}_${QUANTUM_ENC}_b${BATCH_SIZE} \
+    --out_dir artifacts/${DATASET}_${ENCODING}_${QUANTUM_ENC}_g${N_GENOMES}_q${QUBITS}_b${BATCH_SIZE} \
     steady_state \
     --max_population_size 30
