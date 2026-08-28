@@ -39,6 +39,9 @@ class EXAQC:
         hyperparameters: dict[str, any],
         mutation_strategy: list[str] = None,
         parent_strategy: list[str] = None,
+        binary_crossover_rate: float = 0.00,
+        n_ary_crossover_rate: float = 0.20,
+        exponential_crossover_rate: float = 0.10,
         input_qubits: list[tuple[str, int]] = None,
         input_registers: dict[str, int] = None,
         output_registers: dict[str, int] = None,
@@ -72,6 +75,13 @@ class EXAQC:
                 between range(min, max), where min should be at least 2; or 'exponential <scale>' which will select the
                 number of mutations using an exponential distribution with the given scale plus 2 to ensure at least
                 2 mutation happens.
+            binary_crossover_rate: what fraction of the time (once the population is initialized) a child is
+                generated via binary crossover of two parents.
+            n_ary_crossover_rate: what fraction of the time (once the population is initialized) a child is
+                generated via n-ary crossover of several parents.
+            exponential_crossover_rate: what fraction of the time (once the population is initialized) a child
+                is generated via exponential crossover of two parents. Whatever fraction remains after the three
+                crossover rates is used for mutation.
             input_registers: a dict of register names and sizes (the key is the qubit name, the value is its size). must
                 be specified if input_qubits is not specified.
             input_qubits: a list of qubit tuples (name, register_index) which would be the expanded form of the
@@ -102,6 +112,10 @@ class EXAQC:
 
         self.mutation_strategy = mutation_strategy
         self.parent_strategy = parent_strategy
+
+        self.binary_crossover_rate = binary_crossover_rate
+        self.n_ary_crossover_rate = n_ary_crossover_rate
+        self.exponential_crossover_rate = exponential_crossover_rate
 
         if input_registers is None and input_qubits is None:
             logger.critical(
@@ -429,9 +443,9 @@ class EXAQC:
 
     def generate_genome(
         self,
-        binary_crossover_rate: float = 0.00,
-        n_ary_crossover_rate: float = 0.20,
-        exponential_crossover_rate: float = 0.10,
+        binary_crossover_rate: float | None = None,
+        n_ary_crossover_rate: float | None = None,
+        exponential_crossover_rate: float | None = None,
         n_ary_parents: int = 5,
     ) -> CircuitGenome:
         """
@@ -439,13 +453,26 @@ class EXAQC:
 
         Args:
             binary_crossover_rate: what percentage of time to do binary crossover after
-                the population has been initialized.
+                the population has been initialized. Defaults to the rate configured on
+                this EXAQC instance (``self.binary_crossover_rate``) when ``None``.
             n_ary_crossover_rate: what percentage of the time to do n-ary crossover
-                after the population has been initialized.
+                after the population has been initialized. Defaults to the rate configured
+                on this EXAQC instance (``self.n_ary_crossover_rate``) when ``None``.
+            exponential_crossover_rate: what percentage of the time to do exponential
+                crossover after the population has been initialized. Defaults to the rate
+                configured on this EXAQC instance (``self.exponential_crossover_rate``)
+                when ``None``.
             n_ary_parents: how many parents to use for n-ary crossover
         Returns:
             A new child to evaluate for EXAQC.
         """
+
+        if binary_crossover_rate is None:
+            binary_crossover_rate = self.binary_crossover_rate
+        if n_ary_crossover_rate is None:
+            n_ary_crossover_rate = self.n_ary_crossover_rate
+        if exponential_crossover_rate is None:
+            exponential_crossover_rate = self.exponential_crossover_rate
 
         if self.population.is_initializing():
             # still need to populate the initial population

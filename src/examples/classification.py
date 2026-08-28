@@ -145,6 +145,24 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         required=True,
     )
+    parser.add_argument(
+        "--binary_crossover_rate",
+        type=float,
+        default=0.00,
+        help="Fraction of genomes generated via binary crossover once the population is initialized.",
+    )
+    parser.add_argument(
+        "--n_ary_crossover_rate",
+        type=float,
+        default=0.20,
+        help="Fraction of genomes generated via n-ary crossover once the population is initialized.",
+    )
+    parser.add_argument(
+        "--exponential_crossover_rate",
+        type=float,
+        default=0.10,
+        help="Fraction of genomes generated via exponential crossover once the population is initialized.",
+    )
 
     populations = parser.add_subparsers(
         dest="population_strategy",
@@ -543,6 +561,9 @@ def main() -> None:
         hyperparameters=hyperparameters,
         mutation_strategy=args.mutation_strategy,
         parent_strategy=args.parent_strategy,
+        binary_crossover_rate=args.binary_crossover_rate,
+        n_ary_crossover_rate=args.n_ary_crossover_rate,
+        exponential_crossover_rate=args.exponential_crossover_rate,
         run_for=args.number_genomes,
         input_registers={"input": args.input_qubits},
         output_registers={"input": args.output_qubits},

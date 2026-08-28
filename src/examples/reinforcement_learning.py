@@ -76,6 +76,7 @@ ENV_IDS: dict[str, str] = {
     "cartpole": "CartPole-v1",
     "acrobot": "Acrobot-v1",
     "mountaincar": "MountainCar-v0",
+    "mountaincar_continuous": "MountainCarContinuous-v0",
     "frozenlake": "FrozenLake-v1",
     "pendulum": "Pendulum-v1",
     "hopper": "Hopper-v5",
@@ -86,13 +87,22 @@ ENV_IDS: dict[str, str] = {
 }
 
 #: The subset of :data:`ENV_IDS` that are continuous (``Box``-action) tasks.
-#: Pendulum is classic control; the rest are MuJoCo tasks (require
+#: MountainCarContinuous and Pendulum are classic control; the rest are MuJoCo
+#: tasks (require
 #: ``gymnasium[mujoco]``). Their observation size, action dimensionality, and
 #: action bounds are read from the environment at build time by
 #: :func:`make_continuous_environment` rather than hardcoded, since these
 #: differ across Gymnasium versions (e.g. Ant/Humanoid observation sizes).
 CONTINUOUS_ENVS: frozenset[str] = frozenset(
-    {"pendulum", "hopper", "walker2d", "halfcheetah", "ant", "humanoid"}
+    {
+        "mountaincar_continuous",
+        "pendulum",
+        "hopper",
+        "walker2d",
+        "halfcheetah",
+        "ant",
+        "humanoid",
+    }
 )
 
 #: All environment names understood by :func:`make_environment`, in the order
@@ -152,8 +162,9 @@ def make_environment(name: str, **kwargs) -> RLEnvironment:
         name: Environment name; one of :data:`ENV_CHOICES`. The discrete tasks
             are ``"cartpole"``, ``"acrobot"``, ``"mountaincar"`` and
             ``"frozenlake"``; the continuous (``Box``-action) tasks are the
-            members of :data:`CONTINUOUS_ENVS` (``"pendulum"``, ``"hopper"``,
-            ``"walker2d"``, ``"halfcheetah"``, ``"ant"``, ``"humanoid"``).
+            members of :data:`CONTINUOUS_ENVS` (``"mountaincar_continuous"``,
+            ``"pendulum"``, ``"hopper"``, ``"walker2d"``, ``"halfcheetah"``,
+            ``"ant"``, ``"humanoid"``).
         **kwargs: Environment-specific options (e.g. ``map_name`` and
             ``is_slippery`` for FrozenLake).
 
@@ -382,6 +393,24 @@ if __name__ == "__main__":
         type=str,
         nargs="+",
         required=True,
+    )
+    p.add_argument(
+        "--binary_crossover_rate",
+        type=float,
+        default=0.00,
+        help="Fraction of genomes generated via binary crossover once the population is initialized.",
+    )
+    p.add_argument(
+        "--n_ary_crossover_rate",
+        type=float,
+        default=0.20,
+        help="Fraction of genomes generated via n-ary crossover once the population is initialized.",
+    )
+    p.add_argument(
+        "--exponential_crossover_rate",
+        type=float,
+        default=0.10,
+        help="Fraction of genomes generated via exponential crossover once the population is initialized.",
     )
 
     subparsers = p.add_subparsers(
@@ -667,6 +696,9 @@ if __name__ == "__main__":
         hyperparameters=hyperparameters,
         mutation_strategy=args.mutation_strategy,
         parent_strategy=args.parent_strategy,
+        binary_crossover_rate=args.binary_crossover_rate,
+        n_ary_crossover_rate=args.n_ary_crossover_rate,
+        exponential_crossover_rate=args.exponential_crossover_rate,
         run_for=args.number_genomes,
         input_registers={"input": n_input_registers},
         output_registers={"input": n_output_registers},
