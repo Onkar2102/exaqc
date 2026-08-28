@@ -67,14 +67,14 @@ class EXAQC:
                 this is an additional search space to search over.
             mutation_strategy: specifies how many mutations should be performed if mutation is selected. current
                 options are 'uniform <min> <max>' which will select a number of mutations uniformly at random
-                between range(min, max), where min should be at least 1; or 'exponential <scale>' which will select the
-                number of mutations using an exponential distribution with the given scale plus 1 to ensure at least
-                1 mutation happens.
+                between min and max, inclusive of both endpoints, where min should be at least 1; or
+                'exponential <scale>' which will select the number of mutations using an exponential distribution
+                with the given scale plus 1 to ensure at least 1 mutation happens.
             parent_strategy: specifies how many parents should be used for an n-ary crossover operation. current
-                options are 'uniform <min> <max>' which will select a number of mutations uniformly at random
-                between range(min, max), where min should be at least 2; or 'exponential <scale>' which will select the
-                number of mutations using an exponential distribution with the given scale plus 2 to ensure at least
-                2 mutation happens.
+                options are 'uniform <min> <max>' which will select a number of parents uniformly at random
+                between min and max, inclusive of both endpoints, where min should be at least 2; or
+                'exponential <scale>' which will select the number of parents using an exponential distribution
+                with the given scale plus 2 to ensure at least 2 parents.
             binary_crossover_rate: what fraction of the time (once the population is initialized) a child is
                 generated via binary crossover of two parents.
             n_ary_crossover_rate: what fraction of the time (once the population is initialized) a child is
@@ -308,7 +308,9 @@ class EXAQC:
         if self.mutation_strategy[0] == "uniform":
             min_value = int(self.mutation_strategy[1])
             max_value = int(self.mutation_strategy[2])
-            n_mutations = random.choice(range(min_value, max_value))
+            # inclusive of both endpoints: 'uniform 1 3' -> {1, 2, 3},
+            # 'uniform 5 5' -> {5}.
+            n_mutations = random.choice(range(min_value, max_value + 1))
             logger.info(f"uniform mutation count generated: {n_mutations}")
             return n_mutations
 
@@ -330,7 +332,9 @@ class EXAQC:
         if self.parent_strategy[0] == "uniform":
             min_value = int(self.parent_strategy[1])
             max_value = int(self.parent_strategy[2])
-            n_parents = random.choice(range(min_value, max_value))
+            # inclusive of both endpoints: 'uniform 2 4' -> {2, 3, 4},
+            # 'uniform 5 5' -> {5}.
+            n_parents = random.choice(range(min_value, max_value + 1))
             logger.info(f"uniform parent count generated: {n_parents}")
             return n_parents
 

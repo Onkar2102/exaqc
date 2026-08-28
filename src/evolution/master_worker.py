@@ -161,14 +161,14 @@ def master_worker(
             this is an additional search space to search over.
         mutation_strategy: specifies how many mutations should be performed if mutation is selected. current
             options are 'uniform <min> <max>' which will select a number of mutations uniformly at random
-            between range(min, max), where min should be at least 1; or 'exponential <scale>' which will select the
-            number of mutations using an exponential distribution with the given scale plus 1 to ensure at least
-            1 mutation happens.
+            between min and max, inclusive of both endpoints, where min should be at least 1; or
+            'exponential <scale>' which will select the number of mutations using an exponential distribution
+            with the given scale plus 1 to ensure at least 1 mutation happens.
         parent_strategy: specifies how many parents should be selected for n-ary crossover. current
-            options are 'uniform <min> <max>' which will select a number of mutations uniformly at random
-            between range(min, max), where min should be at least 2; or 'exponential <scale>' which will select the
-            number of mutations using an exponential distribution with the given scale plus 2 to ensure at least
-            2 mutation happens.
+            options are 'uniform <min> <max>' which will select a number of parents uniformly at random
+            between min and max, inclusive of both endpoints, where min should be at least 2; or
+            'exponential <scale>' which will select the number of parents using an exponential distribution
+            with the given scale plus 2 to ensure at least 2 parents.
         run_for: how many genomes to generate in the search process.
         binary_crossover_rate: fraction of generated genomes (after the population is initialized) produced by
             binary crossover.

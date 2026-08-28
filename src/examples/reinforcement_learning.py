@@ -476,6 +476,32 @@ if __name__ == "__main__":
         default="linear",
         help="Circuit-output-to-action decoding.",
     )
+    p.add_argument(
+        "--quantum_dropout",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Master switch for quantum dropout during training. Disabled by "
+            "default; when enabled, dropout is sampled per training episode "
+            "from --quantum_dropout_type and --quantum_dropout_rate and is "
+            "never applied during greedy evaluation."
+        ),
+    )
+    p.add_argument(
+        "--quantum_dropout_type",
+        "-qdt",
+        type=str,
+        default="none",
+        choices=["gate", "rotation", "entangling", "qubit", "innovation"],
+        help="Quantum dropout type (used only when --quantum_dropout is set).",
+    )
+    p.add_argument(
+        "--quantum_dropout_rate",
+        "-qdr",
+        type=float,
+        default=0.0,
+        help="Quantum dropout rate (used only when --quantum_dropout is set).",
+    )
 
     # RL hyperparameters (become genome.hyperparameters, mutable by the search)
     p.add_argument("--episodes", type=int, default=60)
@@ -568,6 +594,7 @@ if __name__ == "__main__":
         epsilon=args.epsilon,
         epsilon_min=args.epsilon_min,
         epsilon_decay=args.epsilon_decay,
+        quantum_dropout=args.quantum_dropout,
     )
 
     # Value-based trainers (q_learning / sarsa) enumerate discrete actions and
@@ -586,6 +613,8 @@ if __name__ == "__main__":
     hyperparameters = {
         "quantum_input_mode": args.quantum_input_mode,
         "quantum_output_mode": args.quantum_output_mode,
+        "quantum_dropout_type": args.quantum_dropout_type,
+        "quantum_dropout_rate": args.quantum_dropout_rate,
         "episodes": args.episodes,
         "eval_episodes": args.eval_episodes,
         "max_steps": args.max_steps,

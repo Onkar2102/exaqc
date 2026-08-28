@@ -1139,9 +1139,19 @@ class CircuitGenome:
             logger.warning(f"Could not draw circuit: {e}")
 
     def clear_quantum_dropout(self) -> None:
-        """Clears temporary quantum dropout masks."""
+        """Clears temporary quantum dropout masks.
+
+        Clears the genome-level dropout state (dropped gate innovations and
+        dropped qubits) and, when a hybrid model has already been built, resets
+        its qubit-dropout mask so the next forward pass runs the complete
+        evolved circuit.
+        """
         self.dropout_gate_innovations.clear()
         self.dropout_qubits.clear()
+        if hasattr(self, "hybrid_model") and hasattr(
+            self.hybrid_model, "dropout_qubits"
+        ):
+            self.hybrid_model.dropout_qubits = set()
 
     def is_gate_dropped(self, gate) -> bool:
         """Returns whether a gate is dropped for the current forward pass."""
