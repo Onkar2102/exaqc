@@ -172,21 +172,24 @@ class ClippedDecoder(Decoder):
         the rest, where N is the expected number of outputs
         for the loss function.
 
+        The values are returned unmodified (no sum-to-1 rescaling): every
+        downstream consumer re-applies its own normalization -- classification
+        uses ``CrossEntropyLoss`` (an internal ``log_softmax``) and the discrete
+        reinforcement-learning policies use ``Categorical(logits=...)`` (an
+        internal softmax), while the continuous policies read per-dimension mean
+        and log-std slots directly -- so none of them require a normalized input.
+
         Args:
             inputs: the z (output) tensor from a quantum circuit.
             genome: the circuit genome whose quantum circuit
                 inputs are being set
+
+        Returns:
+            The leading ``self.n_outputs`` values of ``inputs`` along the last
+            dimension, unmodified.
         """
 
-        clipped_inputs = inputs[..., : self.n_outputs]
-
-        # rescale the inputs as probabilities so they sum to 1.0
-        # this may not be needed
-        clipped_inputs = clipped_inputs / (
-            clipped_inputs.sum(dim=-1, keepdim=True) + 1e-12
-        )
-
-        return clipped_inputs
+        return inputs[..., : self.n_outputs]
 
     def copy(self) -> Decoder:
         return self

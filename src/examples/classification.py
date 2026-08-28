@@ -76,6 +76,7 @@ class ClassificationObjective(Objective):
         validation_loss_function: Any,
         metrics: dict[str, Metric],
         device: str | None = None,
+        quantum_dropout: bool = False,
     ) -> None:
         """Initializes the classification objective.
 
@@ -85,6 +86,9 @@ class ClassificationObjective(Objective):
             training_loss_function: Training loss function.
             validation_loss_function: Validation loss function.
             metrics: Evaluation metrics.
+            device: PyTorch device to train on, or ``None`` to auto-select.
+            quantum_dropout: Whether to apply quantum dropout during training.
+                Defaults to ``False`` (disabled).
         """
         self.trainer = SupervisedTrainer(
             training_dataloader=training_dataloader,
@@ -93,6 +97,7 @@ class ClassificationObjective(Objective):
             validation_loss_function=validation_loss_function,
             metrics=metrics,
             device=device,
+            quantum_dropout=quantum_dropout,
         )
 
     def __call__(self, genome: CircuitGenome) -> None:
@@ -144,6 +149,24 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         nargs="+",
         required=True,
+    )
+    parser.add_argument(
+        "--binary_crossover_rate",
+        type=float,
+        default=0.00,
+        help="Fraction of genomes generated via binary crossover once the population is initialized.",
+    )
+    parser.add_argument(
+        "--n_ary_crossover_rate",
+        type=float,
+        default=0.20,
+        help="Fraction of genomes generated via n-ary crossover once the population is initialized.",
+    )
+    parser.add_argument(
+        "--exponential_crossover_rate",
+        type=float,
+        default=0.10,
+        help="Fraction of genomes generated via exponential crossover once the population is initialized.",
     )
 
     populations = parser.add_subparsers(
@@ -234,19 +257,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Choose the output mode from the quantum circuit.",
     )
     parser.add_argument(
+        "--quantum_dropout",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Master switch for quantum dropout during training. Disabled by "
+            "default; when enabled, dropout is applied per training batch using "
+            "--quantum_dropout_type and --quantum_dropout_rate."
+        ),
+    )
+    parser.add_argument(
         "--quantum_dropout_type",
         "-qdt",
         type=str,
         default="none",
         choices=["gate", "rotation", "entangling", "qubit", "innovation"],
-        help="Choose the dropout type for quantum gates.",
+        help="Choose the dropout type for quantum gates (used only when --quantum_dropout is set).",
     )
     parser.add_argument(
         "--quantum_dropout_rate",
         "-qdr",
         type=float,
         default=0.0,
-        help="Choose the dropout rate for quantum gates.",
+        help="Choose the dropout rate for quantum gates (used only when --quantum_dropout is set).",
     )
     parser.add_argument(
         "--encoding",
@@ -457,6 +490,7 @@ def main() -> None:
         ),
         metrics=metrics,
         device=args.device,
+        quantum_dropout=args.quantum_dropout,
     )
 
     n_encoder_outputs = args.input_qubits
@@ -543,6 +577,9 @@ def main() -> None:
         hyperparameters=hyperparameters,
         mutation_strategy=args.mutation_strategy,
         parent_strategy=args.parent_strategy,
+        binary_crossover_rate=args.binary_crossover_rate,
+        n_ary_crossover_rate=args.n_ary_crossover_rate,
+        exponential_crossover_rate=args.exponential_crossover_rate,
         run_for=args.number_genomes,
         input_registers={"input": args.input_qubits},
         output_registers={"input": args.output_qubits},
