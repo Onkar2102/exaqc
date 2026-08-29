@@ -139,6 +139,24 @@ class Encoder(ABC):
         """
         pass
 
+    def input_shape(self, batch_size: int = 1) -> tuple[int, ...]:
+        """Returns the shape of an input batch this encoder consumes.
+
+        The base implementation describes a flat feature vector of ``n_inputs``
+        values per sample, which matches every encoder whose ``__call__``
+        accepts ``[batch_size, n_inputs]``. Encoders that consume a differently
+        shaped tensor (e.g. :class:`CNNEncoder`, which takes image batches)
+        override this.
+
+        Args:
+            batch_size: Number of samples in the batch (the leading dimension).
+
+        Returns:
+            The input tensor shape including the batch dimension, i.e.
+            ``(batch_size, n_inputs)``.
+        """
+        return (batch_size, self.n_inputs)
+
     def get_constructor_args(self) -> dict[str, Any]:
         """Returns constructor arguments required to rebuild the encoder.
 
@@ -655,6 +673,26 @@ class CNNEncoder(Encoder, torch.nn.Module):
 
         features = self.features(inputs.float())
         return self.projection(features)
+
+    def input_shape(self, batch_size: int = 1) -> tuple[int, ...]:
+        """Returns the shape of an image input batch this encoder consumes.
+
+        Overrides :meth:`Encoder.input_shape` because a CNN encoder consumes
+        image tensors rather than flat feature vectors.
+
+        Args:
+            batch_size: Number of images in the batch (the leading dimension).
+
+        Returns:
+            The image tensor shape including the batch dimension, i.e.
+            ``(batch_size, input_channels, input_height, input_width)``.
+        """
+        return (
+            batch_size,
+            self.input_channels,
+            self.input_height,
+            self.input_width,
+        )
 
     def get_constructor_args(
         self,

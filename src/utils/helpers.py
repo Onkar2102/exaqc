@@ -258,22 +258,120 @@ def torch_params_to_genome(
                     gate.parameters[name] = _extract_param_value(trained_params[key])
 
 
-def draw_network(out_dir: str, model: torch.nn.Module, genome_number: int):
+#: Set once :func:`_register_visualtorch_autoray_backend` has run, so the
+#: autoray backend alias is installed at most once per process.
+_VISUALTORCH_AUTORAY_REGISTERED = False
+
+
+def _register_visualtorch_autoray_backend() -> None:
+    """Make ``autoray`` treat visualtorch's tracer tensors as torch tensors.
+
+    ``visualtorch`` traces a model by pushing a ``RecorderTensor`` (a
+    ``torch.Tensor`` subclass whose module is ``visualtorch``) through
+    ``forward``. Quantum layers dispatch their math through ``autoray``, which
+    infers a tensor's backend from its top-level module name -- here
+    ``"visualtorch"`` -- and then fails with e.g. "couldn't find function 'cos'
+    for backend 'visualtorch'", because no math implementations are registered
+    for that backend.
+
+    Aliasing the ``"visualtorch"`` backend to ``"torch"`` makes autoray resolve
+    *every* required operation (``cos``, ``sin``, ``exp``, ``astype``, ``real``,
+    ``imag``, ...) to its torch implementation at once -- correct here because a
+    ``RecorderTensor`` is a ``torch.Tensor`` and torch functions operate on it
+    (and are recorded via its ``__torch_function__``). This is far more robust
+    than hand-registering individual functions, which would silently miss ops
+    needed by gate or input-mode combinations not yet exercised.
+
+    Returns:
+        None. Installs the alias in autoray's backend-alias table and clears its
+        cached backend inference so the alias takes effect immediately. Runs at
+        most once per process and never raises: a missing or incompatible
+        autoray is logged and ignored, since the layout image is best-effort.
+    """
+    global _VISUALTORCH_AUTORAY_REGISTERED
+    if _VISUALTORCH_AUTORAY_REGISTERED:
+        return
+    _VISUALTORCH_AUTORAY_REGISTERED = True
+
+    try:
+        import autoray.autoray as autoray_internals
+
+        autoray_internals._BACKEND_ALIASES["visualtorch"] = "torch"
+
+        # Backend inference is memoized per tensor class; drop any cached
+        # result so a RecorderTensor seen before the alias still maps to torch.
+        for cache_name in (
+            "_infer_class_backend_cached",
+            "_infer_class_backend_multi_cached",
+        ):
+            cached = getattr(autoray_internals, cache_name, None)
+            if cached is not None and hasattr(cached, "cache_clear"):
+                cached.cache_clear()
+    except Exception as error:
+        logger.warning(
+            "Could not alias the visualtorch autoray backend to torch; "
+            "network layout drawing may fail: {}",
+            error,
+        )
+
+
+def draw_network(
+    out_dir: str,
+    model: torch.nn.Module,
+    genome_number: int,
+    input_shape: tuple[int, ...] | None = None,
+) -> None:
     """Draw an end-to-end-architecture view of the entire model.
 
+    The installed ``visualtorch`` (>= 1.x) traces a model by pushing a tensor of
+    ``input_shape`` through its ``forward`` and now *requires* ``input_shape`` as
+    an argument. To let a hybrid model containing a quantum layer be traced, the
+    tracer's math is routed through torch via
+    :func:`_register_visualtorch_autoray_backend`, and the trace is run under
+    ``torch.no_grad`` (the simulator otherwise tries to call ``numpy()`` on
+    gradient-tracking tensors). Any remaining tracing failure is logged and the
+    layout image is skipped rather than raised.
+
     Args:
-        out_dir (str): The file path to the save directory
-        model (torch.nn.Module): The entire hybrid model.
-        genome_number (int): The genome identifier.
+        out_dir: The file path to the save directory.
+        model: The model to visualize (e.g. the genome's hybrid model).
+        genome_number: The genome identifier, used in the output filename.
+        input_shape: The shape of a single input batch expected by ``model``,
+            including the batch dimension (e.g. ``(1, n_features)`` for a linear
+            encoder or ``(1, channels, height, width)`` for a CNN encoder). If
+            ``None``, no shape can be inferred and the layout image is skipped.
+
+    Returns:
+        None. Writes ``genome_<n>_layout.png`` into ``out_dir`` on success, or
+        logs a warning and returns without writing on failure.
     """
-    visualtorch.layered_view(
-        model,
-        legend=True,
-        to_file=os.path.join(out_dir, f"genome_{genome_number}_layout.png"),
-    )
-    # img.save(
-    #     os.path.join(
-    #         out_dir,
-    #         f"genome_{genome_number}_layout.png"
-    #     )
-    # )
+    if input_shape is None:
+        logger.warning(
+            "Skipping network layout image for genome {}: no input_shape "
+            "was provided to draw_network.",
+            genome_number,
+        )
+        return
+
+    _register_visualtorch_autoray_backend()
+
+    try:
+        # no_grad: the traced statevector simulation would otherwise call
+        # numpy() on gradient-tracking tensors and raise.
+        with torch.no_grad():
+            visualtorch.layered_view(
+                model,
+                input_shape=input_shape,
+                legend=True,
+                to_file=os.path.join(out_dir, f"genome_{genome_number}_layout.png"),
+            )
+    except Exception as error:
+        # The layout diagram is best-effort: if visualtorch still cannot trace
+        # a particular model, degrade to a concise warning instead of aborting
+        # save_circuit.
+        logger.warning(
+            "Skipping network layout image for genome {}: visualtorch could "
+            "not trace the model ({}).",
+            genome_number,
+            error,
+        )
