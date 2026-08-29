@@ -1137,24 +1137,18 @@ class CircuitGenome:
                     f"Cannot draw circuit for unknown target {self.target}"
                 )
 
-            path = os.path.join(
-                out_dir, f"{insert_type}_genome_{self.genome_number}_{tag}.png"
-            )
-            fig.savefig(path, dpi=200, bbox_inches="tight")
-            plt.close(fig)
-
-            # The whole-model layout diagram needs the model's input shape,
-            # which each encoder knows (a CNN encoder consumes image tensors;
-            # every other encoder consumes a flat feature vector).
-            encoder = getattr(self, "encoder", None)
-            input_shape = encoder.input_shape() if encoder is not None else None
-
+            # Compose the single architecture diagram: the encoder layers, the
+            # quantum input encoding, the quantum circuit drawn above embedded in
+            # place, the output readout, and the decoder layers. draw_network
+            # rasterizes and embeds ``fig`` and then closes the composed figure.
+            output_filename = f"{insert_type}_genome_{self.genome_number}_{tag}.png"
             draw_network(
                 out_dir,
-                self.hybrid_model,
-                self.genome_number,
-                input_shape=input_shape,
+                self,
+                output_filename,
+                quantum_circuit_fig=fig,
             )
+            plt.close(fig)
         except Exception as e:
             logger.warning("Could not draw circuit!")
             logger.exception(e)

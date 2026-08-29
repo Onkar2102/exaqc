@@ -8,6 +8,8 @@ from loguru import logger
 
 from typing import TYPE_CHECKING, Mapping, Sequence, Any
 
+from src.circuits.layer_spec import LayerSpec
+
 if TYPE_CHECKING:
     from src.circuits.circuit import CircuitGenome
 
@@ -139,23 +141,26 @@ class Encoder(ABC):
         """
         pass
 
-    def input_shape(self, batch_size: int = 1) -> tuple[int, ...]:
-        """Returns the shape of an input batch this encoder consumes.
+    def describe_layers(self) -> list[LayerSpec]:
+        """Describes this encoder as an ordered list of drawable layers.
 
-        The base implementation describes a flat feature vector of ``n_inputs``
-        values per sample, which matches every encoder whose ``__call__``
-        accepts ``[batch_size, n_inputs]``. Encoders that consume a differently
-        shaped tensor (e.g. :class:`CNNEncoder`, which takes image batches)
-        override this.
-
-        Args:
-            batch_size: Number of samples in the batch (the leading dimension).
+        Used by the architecture diagram compositor
+        (:func:`src.utils.helpers.draw_network`). The base implementation
+        returns a single generic block spanning ``n_inputs`` -> ``n_outputs``;
+        subclasses override this to expose their real layer structure.
 
         Returns:
-            The input tensor shape including the batch dimension, i.e.
-            ``(batch_size, n_inputs)``.
+            A list of :class:`~src.circuits.layer_spec.LayerSpec` describing the
+            encoder's layers in input-to-output order.
         """
-        return (batch_size, self.n_inputs)
+        return [
+            LayerSpec(
+                kind="block",
+                label=type(self).__name__,
+                in_shape=(self.n_inputs,),
+                out_shape=(self.n_outputs,),
+            )
+        ]
 
     def get_constructor_args(self) -> dict[str, Any]:
         """Returns constructor arguments required to rebuild the encoder.
@@ -271,6 +276,21 @@ class IdentityEncoder(Encoder):
         """
         return inputs
 
+    def describe_layers(self) -> list[LayerSpec]:
+        """Describes the identity encoder as a single pass-through block.
+
+        Returns:
+            A one-element list with an ``"identity"`` :class:`LayerSpec`.
+        """
+        return [
+            LayerSpec(
+                kind="identity",
+                label="Identity",
+                in_shape=(self.n_inputs,),
+                out_shape=(self.n_outputs,),
+            )
+        ]
+
     def copy(self) -> Encoder:
         """
         This encoder has no state so we don't need to do a copy.
@@ -338,6 +358,22 @@ class LinearEncoder(Encoder, torch.nn.Module):
         encoding = self.layer(inputs.float())
 
         return encoding
+
+    def describe_layers(self) -> list[LayerSpec]:
+        """Describes the linear encoder as a single fully connected layer.
+
+        Returns:
+            A one-element list with an ``"fc"`` :class:`LayerSpec` mapping
+            ``n_inputs`` -> ``n_outputs``.
+        """
+        return [
+            LayerSpec(
+                kind="fc",
+                label="Linear",
+                in_shape=(self.n_inputs,),
+                out_shape=(self.n_outputs,),
+            )
+        ]
 
     def copy(self) -> Encoder:
         """
@@ -674,25 +710,118 @@ class CNNEncoder(Encoder, torch.nn.Module):
         features = self.features(inputs.float())
         return self.projection(features)
 
-    def input_shape(self, batch_size: int = 1) -> tuple[int, ...]:
-        """Returns the shape of an image input batch this encoder consumes.
-
-        Overrides :meth:`Encoder.input_shape` because a CNN encoder consumes
-        image tensors rather than flat feature vectors.
+    @staticmethod
+    def _pool_label(module: torch.nn.Module) -> str:
+        """Builds a human-readable label for a pooling module.
 
         Args:
-            batch_size: Number of images in the batch (the leading dimension).
+            module: A ``MaxPool2d`` or ``AvgPool2d`` module.
 
         Returns:
-            The image tensor shape including the batch dimension, i.e.
-            ``(batch_size, input_channels, input_height, input_width)``.
+            A label such as ``"max pool 2x2"``.
         """
-        return (
-            batch_size,
-            self.input_channels,
-            self.input_height,
-            self.input_width,
+        kernel = module.kernel_size
+        kh, kw = (kernel, kernel) if isinstance(kernel, int) else kernel
+        pool_type = "max" if isinstance(module, torch.nn.MaxPool2d) else "avg"
+        return f"{pool_type} pool {kh}x{kw}"
+
+    def describe_layers(self) -> list[LayerSpec]:
+        """Describes the CNN encoder as an ordered list of drawable layers.
+
+        The convolutional feature extractor is traced with a dummy input so each
+        convolution and pooling layer reports its **exact** per-sample tensor
+        shape transition ``(channels, height, width) -> (channels', height',
+        width')``. The final adaptive-average-pool output feeds the flatten,
+        whose flattened size and the fully connected projection head dimensions
+        are therefore all known. Batch-norm/activation/dropout modules preserve
+        shape and are not drawn as their own layers.
+
+        Returns:
+            A list of :class:`~src.circuits.layer_spec.LayerSpec` in
+            input-to-output order, with 3-D shapes on the convolution/pooling
+            layers and 1-D shapes from the flatten onward.
+        """
+        layers: list[LayerSpec] = []
+
+        # Trace a dummy image through the feature extractor to record exact
+        # intermediate shapes. Run in eval mode (restored afterwards) so a
+        # batch of one does not trip batch-norm running-stat updates.
+        was_training = self.training
+        self.eval()
+        try:
+            with torch.no_grad():
+                activation = torch.zeros(
+                    1, self.input_channels, self.input_height, self.input_width
+                )
+                prev_shape: tuple[int, ...] = tuple(activation.shape[1:])
+                for module in self.features:
+                    activation = module(activation)
+                    out_shape = tuple(int(dim) for dim in activation.shape[1:])
+
+                    if isinstance(module, torch.nn.Conv2d):
+                        kh, kw = module.kernel_size
+                        layers.append(
+                            LayerSpec(
+                                kind="conv",
+                                label=f"Conv {kh}x{kw}",
+                                in_shape=prev_shape,
+                                out_shape=out_shape,
+                            )
+                        )
+                        prev_shape = out_shape
+                    elif isinstance(module, (torch.nn.MaxPool2d, torch.nn.AvgPool2d)):
+                        layers.append(
+                            LayerSpec(
+                                kind="pool",
+                                label=self._pool_label(module),
+                                in_shape=prev_shape,
+                                out_shape=out_shape,
+                            )
+                        )
+                        prev_shape = out_shape
+                    else:
+                        # BatchNorm/activation/dropout preserve shape; the final
+                        # AdaptiveAvgPool2d output simply feeds the flatten.
+                        prev_shape = out_shape
+        finally:
+            self.train(was_training)
+
+        # Flatten the final feature map into the projection head.
+        flattened = 1
+        for dim in prev_shape:
+            flattened *= int(dim)
+        layers.append(
+            LayerSpec(
+                kind="flatten",
+                label="Flatten",
+                in_shape=prev_shape,
+                out_shape=(flattened,),
+            )
         )
+
+        # Fully connected projection head down to n_outputs, with known dims.
+        prev_dim = flattened
+        for hidden_dim in self.fully_connected_layers:
+            layers.append(
+                LayerSpec(
+                    kind="fc",
+                    label="Linear",
+                    in_shape=(prev_dim,),
+                    out_shape=(int(hidden_dim),),
+                )
+            )
+            prev_dim = int(hidden_dim)
+
+        layers.append(
+            LayerSpec(
+                kind="fc",
+                label="Linear",
+                in_shape=(prev_dim,),
+                out_shape=(self.n_outputs,),
+            )
+        )
+
+        return layers
 
     def get_constructor_args(
         self,

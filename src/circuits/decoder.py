@@ -8,6 +8,8 @@ from loguru import logger
 
 from typing import TYPE_CHECKING
 
+from src.circuits.layer_spec import LayerSpec
+
 if TYPE_CHECKING:
     from src.circuits.circuit import CircuitGenome
 
@@ -164,6 +166,27 @@ class Decoder(ABC):
         """
         pass
 
+    def describe_layers(self) -> list[LayerSpec]:
+        """Describes this decoder as an ordered list of drawable layers.
+
+        Used by the architecture diagram compositor
+        (:func:`src.utils.helpers.draw_network`). The base implementation
+        returns a single generic block; subclasses override this to expose
+        their real layer structure.
+
+        Returns:
+            A list of :class:`~src.circuits.layer_spec.LayerSpec` describing the
+            decoder's layers in input-to-output order.
+        """
+        return [
+            LayerSpec(
+                kind="block",
+                label=type(self).__name__,
+                in_shape=(self.n_inputs,),
+                out_shape=(self.n_outputs,),
+            )
+        ]
+
 
 class ClippedDecoder(Decoder):
     def __call__(self, inputs: torch.Tensor, genome: CircuitGenome):
@@ -190,6 +213,22 @@ class ClippedDecoder(Decoder):
         """
 
         return inputs[..., : self.n_outputs]
+
+    def describe_layers(self) -> list[LayerSpec]:
+        """Describes the clipped decoder as a single pass-through block.
+
+        Returns:
+            A one-element list with a ``"passthrough"`` :class:`LayerSpec` (it
+            keeps the leading ``n_outputs`` values without trainable weights).
+        """
+        return [
+            LayerSpec(
+                kind="passthrough",
+                label="Clip",
+                in_shape=(self.n_inputs,),
+                out_shape=(self.n_outputs,),
+            )
+        ]
 
     def copy(self) -> Decoder:
         return self
@@ -242,6 +281,22 @@ class LinearDecoder(torch.nn.Module, Decoder):
 
         # linear layer requires float32 values
         return self.layer(inputs.float())
+
+    def describe_layers(self) -> list[LayerSpec]:
+        """Describes the linear decoder as a single fully connected layer.
+
+        Returns:
+            A one-element list with an ``"fc"`` :class:`LayerSpec` mapping
+            ``n_inputs`` -> ``n_outputs``.
+        """
+        return [
+            LayerSpec(
+                kind="fc",
+                label="Linear",
+                in_shape=(self.n_inputs,),
+                out_shape=(self.n_outputs,),
+            )
+        ]
 
     def copy(self) -> Decoder:
         """

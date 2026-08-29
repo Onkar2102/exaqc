@@ -1,14 +1,14 @@
 """Tests for ``CircuitGenome.save_circuit`` output generation.
 
-``save_circuit`` writes four artifacts into its ``out_dir`` for a genome:
+``save_circuit`` writes three artifacts into its ``out_dir`` for a genome:
 
 * ``genome_<n>.json`` -- the serialized genome (round-trippable via
   ``CircuitGenome.from_dict``),
-* ``genome_<n>.txt``  -- a human-readable gate listing,
-* ``<insert_type>_genome_<n>_<tag>.png`` -- a drawing of the quantum circuit
-  produced with the genome's target framework (pennylane or qiskit), and
-* ``genome_<n>_layout.png`` -- a whole-model architecture diagram drawn by
-  ``draw_network`` (see ``tests/test_draw_network.py`` for focused coverage).
+* ``genome_<n>.txt``  -- a human-readable gate listing, and
+* ``<insert_type>_genome_<n>_<tag>.png`` -- the composed architecture diagram
+  drawn by ``draw_network`` (the encoder/decoder stages with the genome's
+  quantum circuit embedded in the middle; see ``tests/test_draw_network.py``
+  for focused coverage of the diagram itself).
 
 All of these tests write exclusively into pytest's per-test ``tmp_path``
 directory (which pytest creates and removes automatically) and additionally
@@ -123,11 +123,10 @@ def _split_by_suffix(directory: str) -> dict[str, list[str]]:
 def test_save_circuit_writes_exactly_the_expected_files(
     target: str, complexity: str, tmp_path, monkeypatch
 ) -> None:
-    """``save_circuit`` writes exactly the expected artifacts and nothing else.
+    """``save_circuit`` writes exactly the json/txt/png trio and nothing else.
 
-    The artifacts are the ``.json`` genome, the ``.txt`` gate listing, and two
-    ``.png`` images: the circuit diagram (named from the metric tag) and the
-    whole-model layout diagram (``genome_<n>_layout.png``).
+    The single ``.png`` is the composed architecture diagram, named from the
+    metric tag.
 
     Args:
         target: Either ``"pennylane"`` or ``"qiskit"``.
@@ -145,30 +144,25 @@ def test_save_circuit_writes_exactly_the_expected_files(
 
     by_suffix = _split_by_suffix(str(out_dir))
 
-    # one json, one txt, and exactly two pngs (circuit + layout); nothing extra
+    # exactly one of each expected artifact, and nothing extra
     assert by_suffix.get(".json") == ["genome_7.json"]
     assert by_suffix.get(".txt") == ["genome_7.txt"]
+    assert len(by_suffix.get(".png", [])) == 1
     assert set(by_suffix) == {".json", ".txt", ".png"}
 
-    png_names = by_suffix.get(".png", [])
-    assert len(png_names) == 2
-
-    # the circuit-diagram png name is built from insert_type, genome number,
-    # and the metric tag; the layout diagram png has a fixed name.
-    circuit_pngs = [name for name in png_names if name.startswith("best_genome_7_")]
-    assert len(circuit_pngs) == 1
-    circuit_png = circuit_pngs[0]
-    assert "trainacc_0.9500" in circuit_png and "valacc_0.8500" in circuit_png
-    assert "genome_7_layout.png" in png_names
+    # the png name is built from insert_type, genome number, and metric tag
+    png_name = by_suffix[".png"][0]
+    assert png_name.startswith("best_genome_7_")
+    assert "trainacc_0.9500" in png_name and "valacc_0.8500" in png_name
 
     # every artifact has real content
-    for name in ("genome_7.json", "genome_7.txt", *png_names):
+    for name in ("genome_7.json", "genome_7.txt", png_name):
         assert (out_dir / name).stat().st_size > 0
 
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_save_circuit_png_is_a_valid_image(target: str, tmp_path, monkeypatch) -> None:
-    """Every generated ``.png`` starts with the PNG signature bytes.
+    """The generated ``.png`` starts with the PNG signature bytes.
 
     Args:
         target: Either ``"pennylane"`` or ``"qiskit"``.
@@ -182,12 +176,10 @@ def test_save_circuit_png_is_a_valid_image(target: str, tmp_path, monkeypatch) -
     genome = _build_saveable_genome(target)
     genome.save_circuit(insert_type="best", out_dir=str(out_dir))
 
-    png_names = _split_by_suffix(str(out_dir))[".png"]
-    assert png_names  # at least the circuit diagram
-    for png_name in png_names:
-        with open(out_dir / png_name, "rb") as handle:
-            header = handle.read(len(_PNG_MAGIC))
-        assert header == _PNG_MAGIC
+    (png_name,) = _split_by_suffix(str(out_dir))[".png"]
+    with open(out_dir / png_name, "rb") as handle:
+        header = handle.read(len(_PNG_MAGIC))
+    assert header == _PNG_MAGIC
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -258,11 +250,9 @@ def test_save_circuit_uses_fitness_fallback_tag_without_metrics(
     genome = _build_saveable_genome(target, with_metrics=False)
     genome.save_circuit(insert_type="best", out_dir=str(out_dir))
 
-    # The tag lives on the circuit-diagram png; the layout png has a fixed name.
-    png_names = _split_by_suffix(str(out_dir))[".png"]
-    circuit_png = next(name for name in png_names if not name.endswith("_layout.png"))
-    assert "train_ret_1.5000" in circuit_png
-    assert "val_ret_2.5000" in circuit_png
+    (png_name,) = _split_by_suffix(str(out_dir))[".png"]
+    assert "train_ret_1.5000" in png_name
+    assert "val_ret_2.5000" in png_name
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -283,11 +273,9 @@ def test_save_circuit_works_without_initialize_model(
     genome = _build_saveable_genome(target, initialize=False)
     genome.save_circuit(insert_type="best", out_dir=str(out_dir))
 
-    # the drawing branch must still have produced both pngs (circuit + layout),
-    # not just json/txt, even though the genome was not pre-initialized
-    png_names = _split_by_suffix(str(out_dir)).get(".png", [])
-    assert len(png_names) == 2
-    assert any(name.endswith("_layout.png") for name in png_names)
+    # the drawing branch must still have produced a png (not just json/txt),
+    # even though the genome was not pre-initialized
+    assert len(_split_by_suffix(str(out_dir)).get(".png", [])) == 1
 
 
 @pytest.mark.parametrize("target", TARGETS)
