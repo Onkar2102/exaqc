@@ -1036,7 +1036,7 @@ class CircuitGenome:
         os.makedirs(out_dir, exist_ok=True)
 
         json_path = os.path.join(out_dir, f"genome_{self.genome_number}.json")
-        logger.info(f"writing gnome to {json_path}")
+        logger.info(f"writing genome to {json_path}")
         with open(json_path, "w") as fp:
             json.dump(self.to_dict(), fp, ensure_ascii=False, indent=4)
 
