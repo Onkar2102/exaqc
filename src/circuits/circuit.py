@@ -1036,7 +1036,7 @@ class CircuitGenome:
         os.makedirs(out_dir, exist_ok=True)
 
         json_path = os.path.join(out_dir, f"genome_{self.genome_number}.json")
-        logger.info(f"writing NEW BEST gnome to {json_path}")
+        logger.info(f"writing genome to {json_path}")
         with open(json_path, "w") as fp:
             json.dump(self.to_dict(), fp, ensure_ascii=False, indent=4)
 
@@ -1081,6 +1081,14 @@ class CircuitGenome:
         # concrete values and the circuit inputs set to zero.
         try:
             trained_weights = self.get_parameters_as_list()
+
+            # Generate the hybrid model (and its circuit) exactly once, up front,
+            # so the target-specific circuit drawing below and draw_network()
+            # both reuse the same generation. Re-generating a qiskit circuit
+            # corrupts its cached gate parameters ("Weight param ... not present
+            # in circuit"); an already-initialized genome is left untouched.
+            if getattr(self, "hybrid_model", None) is None:
+                self.initialize_model()
 
             if self.target == "pennylane":
                 # Generate the PennyLane QNode if one is not already present
@@ -1129,14 +1137,21 @@ class CircuitGenome:
                     f"Cannot draw circuit for unknown target {self.target}"
                 )
 
-            path = os.path.join(
-                out_dir, f"{insert_type}_genome_{self.genome_number}_{tag}.png"
+            # Compose the single architecture diagram: the encoder layers, the
+            # quantum input encoding, the quantum circuit drawn above embedded in
+            # place, the output readout, and the decoder layers. draw_network
+            # rasterizes and embeds ``fig`` and then closes the composed figure.
+            output_filename = f"{insert_type}_genome_{self.genome_number}_{tag}.png"
+            draw_network(
+                out_dir,
+                self,
+                output_filename,
+                quantum_circuit_fig=fig,
             )
-            fig.savefig(path, dpi=200, bbox_inches="tight")
             plt.close(fig)
-            draw_network(out_dir, self.hybrid_model, self.genome_number)
         except Exception as e:
-            logger.warning(f"Could not draw circuit: {e}")
+            logger.warning("Could not draw circuit!")
+            logger.exception(e)
 
     def clear_quantum_dropout(self) -> None:
         """Clears temporary quantum dropout masks.

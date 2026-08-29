@@ -493,9 +493,15 @@ def main() -> None:
         quantum_dropout=args.quantum_dropout,
     )
 
-    n_encoder_outputs = args.input_qubits
-    if args.quantum_input_mode == "u3":
-        n_encoder_outputs *= 3
+    if args.encoding == "identity":
+        # The identity encoder passes its input straight through, so its output
+        # size must equal its input size (the raw feature count) -- it does not
+        # resize or clip to the qubit count.
+        n_encoder_outputs = training_loader.n_features
+    else:
+        n_encoder_outputs = args.input_qubits
+        if args.quantum_input_mode == "u3":
+            n_encoder_outputs *= 3
 
     n_decoder_inputs = args.output_qubits
     if args.quantum_output_mode == "probs":
@@ -524,6 +530,8 @@ def main() -> None:
         n_inputs=training_loader.n_features,
         n_outputs=n_encoder_outputs,
         config=encoder_config,
+        quantum_input_mode=args.quantum_input_mode,
+        n_input_qubits=args.input_qubits,
     )
     initial_decoder = initialize_decoder(
         target=args.target,

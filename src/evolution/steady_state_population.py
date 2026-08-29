@@ -191,7 +191,7 @@ class SteadyStatePopulation(PopulationStrategy):
                 f"with fitness: {genome.fitness}"
             )
             if self.out_dir is not None:
-                genome.save_circuit(insert_type="best_accuracy", out_dir=self.out_dir)
+                genome.save_circuit(insert_type="best_target", out_dir=self.out_dir)
 
         if genome.genome_number == self.population[0].genome_number:
             # this was a new global best genome
