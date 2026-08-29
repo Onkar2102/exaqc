@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import torch
 
 from abc import ABC, abstractmethod
@@ -22,6 +23,8 @@ def initialize_encoder(
     n_inputs: int,
     n_outputs: int,
     config: Mapping[str, Any] | None = None,
+    quantum_input_mode: str | None = None,
+    n_input_qubits: int | None = None,
 ) -> Encoder:
     """
     Given the target system (e.g., pennylane or qiskit) create a
@@ -37,21 +40,39 @@ def initialize_encoder(
             will be used as inputs for the quantum circuit.
         config: Optional encoder-specific configuration. The CNN encoder
             requires ``input_channels``, ``input_height``, and ``input_width``.
+        quantum_input_mode: The circuit's quantum input mode (one of
+            ``QUANTUM_INPUT_MODES``). When given together with
+            ``n_input_qubits``, encoder/quantum-input size mismatches are
+            validated via :func:`validate_encoder_sizing`.
+        n_input_qubits: The circuit's number of input qubits, used with
+            ``quantum_input_mode`` for the sizing check above.
 
     Returns:
             A configured encoder instance.
 
     Raises:
-        ValueError: If the requested encoder is unknown or its configuration is
-            invalid.
+        ValueError: If the requested encoder is unknown, its configuration is
+            invalid, or its sizing is inconsistent (see
+            :func:`validate_encoder_sizing`).
     """
 
     logger.info(
         f"creating {encoding_str} encoder with n_inputs: {n_inputs} and n_outputs: {n_outputs}"
     )
 
-    encoder = None
     encoder_config = dict(config or {})
+
+    # Validate sizing before constructing anything, so a mis-sized configuration
+    # fails fast rather than silently building an incorrectly sized network.
+    validate_encoder_sizing(
+        encoding_str,
+        n_inputs,
+        n_outputs,
+        quantum_input_mode,
+        n_input_qubits,
+    )
+
+    encoder = None
 
     if encoding_str == "linear":
         encoder = LinearEncoder(n_inputs, n_outputs)
@@ -111,6 +132,82 @@ def initialize_encoder(
         raise ValueError(f"Unknown encoder={encoding_str} for target={target}")
 
     return encoder
+
+
+def validate_encoder_sizing(
+    encoding_str: str,
+    n_inputs: int,
+    n_outputs: int,
+    quantum_input_mode: str | None = None,
+    n_input_qubits: int | None = None,
+) -> None:
+    """Validates encoder / quantum-input sizing, raising on invalid configs.
+
+    Called before an encoder is constructed so a mis-sized configuration fails
+    fast rather than silently building an incorrect network. Checks:
+
+    * **Identity size:** an identity encoder passes its input through unchanged
+      (it cannot clip or resize), so it requires ``n_inputs == n_outputs``.
+    * When the circuit's input mode and qubit count are given:
+
+      - **Amplitude register too small:** amplitude embedding must fit the
+        encoder's values into ``2**n_input_qubits`` amplitudes, so it cannot
+        encode more values than that.
+      - **Identity vs. quantum inputs:** an identity encoder feeds its values
+        straight through as the circuit's quantum inputs, so its size must equal
+        the number of quantum inputs the circuit expects.
+
+    Args:
+        encoding_str: The chosen encoder name (``"identity"``, ``"linear"``,
+            ``"cnn"``).
+        n_inputs: The encoder's classical input feature count.
+        n_outputs: The encoder's declared output size.
+        quantum_input_mode: One of the circuit's ``QUANTUM_INPUT_MODES``, or
+            ``None`` to skip the quantum-input checks.
+        n_input_qubits: The circuit's number of input qubits, or ``None`` to
+            skip the quantum-input checks.
+
+    Raises:
+        ValueError: If any sizing check fails.
+    """
+    if encoding_str == "identity" and n_inputs != n_outputs:
+        raise ValueError(
+            f"IdentityEncoder requires n_inputs == n_outputs, but got "
+            f"n_inputs={n_inputs} and n_outputs={n_outputs}. The identity "
+            f"encoder passes its input through unchanged (it does not clip or "
+            f"resize), so set n_outputs = n_inputs."
+        )
+
+    if quantum_input_mode is None or n_input_qubits is None:
+        return
+
+    # The number of values the encoder feeds the circuit: an identity encoder
+    # feeds its input (n_inputs) straight through; every other encoder feeds its
+    # declared n_outputs.
+    encoder_output_size = n_inputs if encoding_str == "identity" else n_outputs
+
+    if quantum_input_mode == "amplitude":
+        capacity = 2**n_input_qubits
+        if encoder_output_size > capacity:
+            needed = int(math.ceil(math.log2(encoder_output_size)))
+            raise ValueError(
+                f"amplitude encoding: the encoder feeds {encoder_output_size} "
+                f"values but a {n_input_qubits}-qubit amplitude register only "
+                f"holds 2**{n_input_qubits} = {capacity}; the excess cannot be "
+                f"encoded. Increase input_qubits to at least {needed} "
+                f"(ceil(log2({encoder_output_size})))."
+            )
+        return
+
+    expected = n_input_qubits * (3 if quantum_input_mode == "u3" else 1)
+    if encoding_str == "identity" and encoder_output_size != expected:
+        raise ValueError(
+            f"identity encoding with quantum_input_mode='{quantum_input_mode}': "
+            f"the encoder passes {encoder_output_size} values through, but the "
+            f"circuit expects {expected} quantum inputs (from {n_input_qubits} "
+            f"input qubits). These must match; adjust input_qubits or the "
+            f"feature count so they agree."
+        )
 
 
 class Encoder(ABC):

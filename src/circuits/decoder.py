@@ -32,6 +32,11 @@ def initialize_decoder(
         n_outputs: how many output values are required for the loss
             function, which the decoder will perform some operation
             to reduce its input tensor to.
+
+    Raises:
+        ValueError: If the decoder is unknown, or a clipped decoder is requested
+            with ``n_outputs > n_inputs`` (it can only keep a prefix of its
+            input, so it cannot produce more outputs than it receives).
     """
 
     logger.info(
@@ -41,6 +46,16 @@ def initialize_decoder(
     decoder = None
 
     if decoding_str == "clipped":
+        # Validate before constructing: a clipped decoder keeps only the first
+        # n_outputs values, so it cannot expand its input.
+        if n_outputs > n_inputs:
+            raise ValueError(
+                f"ClippedDecoder requires n_outputs <= n_inputs, but got "
+                f"n_outputs={n_outputs} and n_inputs={n_inputs}. It keeps only "
+                f"the first n_outputs values, so it cannot produce more outputs "
+                f"than it receives; reduce n_outputs (or use a linear decoder to "
+                f"expand the size)."
+            )
         decoder = ClippedDecoder(n_inputs, n_outputs)
 
     elif decoding_str == "linear":

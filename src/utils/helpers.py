@@ -285,14 +285,14 @@ _INPUT_MODE_LABELS: dict[str, str] = {
     "ry": "RY Encoding",
     "rz": "RZ Encoding",
     "basis": "Basis Encoding",
-    "amplitude": "Amplitude\nEmbedding",
+    "amplitude": "Amplitude Embedding",
 }
 
 #: Friendly labels for the quantum output-readout interface block, keyed by
 #: ``quantum_output_mode``.
 _OUTPUT_MODE_LABELS: dict[str, str] = {
     "probs": "Probabilities",
-    "expval": "Pauli-Z\nExpectation",
+    "expval": "Pauli-Z Expectation",
     "state": "Statevector",
 }
 
@@ -333,10 +333,24 @@ def _encoding_layer_spec(genome: CircuitGenome) -> LayerSpec:
         out_shape: tuple[int, ...] | None = (genome.n_quantum_inputs(),)
     except Exception:
         out_shape = None
+
+    # Amplitude embedding is a reduction: it pads its input to 2**n_qubits
+    # amplitudes and encodes them into n_qubits qubits. Spell that out rather
+    # than showing only the padded amplitude-vector length.
+    annotation: str | None = None
+    if mode == "amplitude":
+        try:
+            n_qubits = len(genome.input_indexes)
+            annotation = f"pad\n→ [{2 ** n_qubits}]\n→ [{n_qubits}] qubits"
+            out_shape = None
+        except Exception:
+            annotation = None
+
     return LayerSpec(
         kind="encoding",
         label=_INPUT_MODE_LABELS.get(mode, str(mode)),
         out_shape=out_shape,
+        annotation=annotation,
     )
 
 
@@ -666,6 +680,9 @@ def _transform_annotation(spec: LayerSpec) -> str:
     Returns:
         The annotation text (possibly multi-line), or ``""`` when there is none.
     """
+    if spec.annotation is not None:
+        return spec.annotation
+
     in_shape, out_shape = spec.in_shape, spec.out_shape
     spatial = in_shape is not None and out_shape is not None and len(in_shape) == 3
 

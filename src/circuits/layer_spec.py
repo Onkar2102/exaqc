@@ -49,12 +49,18 @@ class LayerSpec:
             dimension), or ``None`` when it is not known/meaningful. When set,
             the diagram annotates the layer with ``in -> out`` rather than just
             its output.
+        annotation: Optional custom annotation text (may contain newlines) drawn
+            beneath the layer in place of the shape-derived one. Used where the
+            shape transition alone is misleading -- e.g. amplitude embedding,
+            which pads its input to ``2**n_qubits`` amplitudes and encodes them
+            into ``n_qubits`` qubits.
     """
 
     kind: str
     label: str
     out_shape: tuple[int, ...] | None = None
     in_shape: tuple[int, ...] | None = None
+    annotation: str | None = None
 
     def __post_init__(self) -> None:
         """Validates ``kind``.

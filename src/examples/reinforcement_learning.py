@@ -642,9 +642,15 @@ if __name__ == "__main__":
     # Encoder / decoder sizing (reuses the existing linear encoder/decoder)
     # -----------------------------------------------------------------
     n_input_registers = args.input_qubits
-    n_encoder_outputs = n_input_registers
-    if args.quantum_input_mode == "u3":
-        n_encoder_outputs *= 3
+    if args.encoding == "identity":
+        # The identity encoder passes its input straight through, so its output
+        # size must equal its input size (the observation feature count) -- it
+        # does not resize or clip to the qubit count.
+        n_encoder_outputs = environment.n_observation_features
+    else:
+        n_encoder_outputs = n_input_registers
+        if args.quantum_input_mode == "u3":
+            n_encoder_outputs *= 3
 
     # The policy occupies environment.n_policy_outputs decoder outputs: one per
     # action for a discrete space, or a mean + log-std per action dimension for
@@ -671,6 +677,8 @@ if __name__ == "__main__":
         encoding_str=args.encoding,
         n_inputs=environment.n_observation_features,
         n_outputs=n_encoder_outputs,
+        quantum_input_mode=args.quantum_input_mode,
+        n_input_qubits=n_input_registers,
     )
     # decoder: quantum outputs -> per-action values (policy logits / Q-values),
     # plus an optional trailing state-value output for advantage methods.
