@@ -376,6 +376,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
+        "--save_training_plot",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Also save a line plot of loss and mean class accuracy per epoch "
+            "next to each saved genome's diagram."
+        ),
+    )
+    parser.add_argument(
         "--logging_level",
         type=str,
         default="INFO",
@@ -545,6 +554,7 @@ def main() -> None:
             max_population_size=args.max_population_size,
             compare=compare,
             out_dir=args.out_dir,
+            save_training_plot=args.save_training_plot,
         )
     else:
         population = SteadyStateIslands(
@@ -556,6 +566,7 @@ def main() -> None:
             primary_parent=args.primary_parent,
             compare=compare,
             out_dir=args.out_dir,
+            save_training_plot=args.save_training_plot,
         )
 
     hyperparameters = {

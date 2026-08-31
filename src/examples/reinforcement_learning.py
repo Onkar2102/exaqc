@@ -324,20 +324,18 @@ class ReinforcementLearningObjective(Objective):
         training_metrics = genome.metadata["best_training_metrics"]
         validation_metrics = genome.metadata["best_validation_metrics"]
 
-        """
         mean_return = (
             validation_metrics["return_mean"] + training_metrics["return_mean"]
         ) / 2.0
-        """
         # mean_return = validation_metrics["return_mean"]
-        mean_return = training_metrics["return_mean"]
+        # mean_return = training_metrics["return_mean"]
 
         # "loss" (lower is better) drives population sorting via compare();
         # the remaining keys mirror the RL fields used by save_circuit's tag
         # fallback and by downstream analysis.
         genome.fitness = {
             "loss": -mean_return,
-            "target_metric": mean_return,
+            "target_metric": validation_metrics["return_mean"],
             "eval_return_mean": validation_metrics["return_mean"],
             "eval_return_std": validation_metrics["return_std"],
             "train_return_mean": training_metrics["return_mean"],
@@ -514,6 +512,15 @@ if __name__ == "__main__":
     p.add_argument("--value_coef", type=float, default=0.5)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--log_every", type=int, default=10)
+    p.add_argument(
+        "--save_training_plot",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Also save a line plot of return and loss per episode next to each "
+            "saved genome's diagram."
+        ),
+    )
     p.add_argument(
         "--ema_alpha",
         type=float,
@@ -697,6 +704,7 @@ if __name__ == "__main__":
             max_population_size=args.max_population_size,
             compare=compare,
             out_dir=args.out_dir,
+            save_training_plot=args.save_training_plot,
         )
     elif args.population_strategy == "islands":
         population = SteadyStateIslands(
@@ -708,6 +716,7 @@ if __name__ == "__main__":
             primary_parent=args.primary_parent,
             compare=compare,
             out_dir=args.out_dir,
+            save_training_plot=args.save_training_plot,
         )
     else:
         raise ValueError(args.population_strategy)
