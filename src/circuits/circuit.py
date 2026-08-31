@@ -23,6 +23,7 @@ from src.circuits.gate import Gate
 from src.circuits.decoder import Decoder
 from src.circuits.encoder import Encoder
 from src.utils.helpers import draw_network
+from src.utils import training_plots
 from src.dropout.quantum_dropout import apply_qubit_readout_dropout
 
 QUANTUM_INPUT_MODES = ["u3", "rx", "ry", "rz", "basis", "amplitude"]
@@ -1018,6 +1019,7 @@ class CircuitGenome:
         self,
         insert_type: str,
         out_dir: str = "artifacts/",
+        save_training_plot: bool = False,
     ) -> None:
         """
         Saves this genome into the specified output directory.
@@ -1025,13 +1027,20 @@ class CircuitGenome:
         Writes three artifacts for the genome: a ``genome_<n>.json`` serialized
         form (round-trippable via :meth:`from_dict`), a ``genome_<n>.txt``
         human-readable gate listing, and a ``<insert_type>_genome_<n>_<tag>.png``
-        drawing of the quantum circuit rendered with the genome's target
-        framework (pennylane or qiskit).
+        architecture diagram (the encoder/decoder stages with the genome's
+        quantum circuit embedded). When ``save_training_plot`` is set, it also
+        writes a ``<insert_type>_genome_<n>_<tag>_training.png`` line plot of the
+        genome's per-epoch/episode training history.
 
         Args:
             insert_type: a tag to put at the beginning of the PNG filename, e.g.
                 'best' for global_best genomes.
             out_dir: where to write the genome files.
+            save_training_plot: when True, also write a training-history line
+                plot (loss and mean class accuracy per epoch for classification;
+                return and loss per episode for reinforcement learning), drawn
+                from the genome's metadata via
+                :func:`src.utils.training_plots.save_training_plot`.
         """
         os.makedirs(out_dir, exist_ok=True)
 
@@ -1152,6 +1161,15 @@ class CircuitGenome:
         except Exception as e:
             logger.warning("Could not draw circuit!")
             logger.exception(e)
+
+        # Optionally write the per-epoch/episode training-history line plot,
+        # drawn from this genome's metadata. Best-effort (never raises).
+        if save_training_plot:
+            training_plots.save_training_plot(
+                out_dir,
+                self,
+                f"{insert_type}_genome_{self.genome_number}_{tag}_training.png",
+            )
 
     def clear_quantum_dropout(self) -> None:
         """Clears temporary quantum dropout masks.

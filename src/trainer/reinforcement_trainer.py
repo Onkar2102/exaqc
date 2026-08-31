@@ -888,6 +888,7 @@ class ReinforcementLearningTrainer(ABC):
         trainable_parameters = list(genome.parameters())
 
         genome.metadata["training_episode_metrics"] = []
+        genome.metadata["evaluation_episode_metrics"] = []
 
         n_trainable = sum(p.numel() for p in trainable_parameters if p.requires_grad)
 
@@ -956,6 +957,10 @@ class ReinforcementLearningTrainer(ABC):
 
             if (episode % eval_every == 0) or (episode == hp.episodes - 1):
                 evaluation = self.evaluate(genome, environment, hp)
+                evaluation["episode"] = episode
+
+                # track evaluations for visualization purposes
+                genome.metadata["evaluation_episode_metrics"].append(evaluation)
 
                 logger.info(
                     f"[{type(self).__name__}] genome {genome.genome_number:4d} episode {episode:4d} "
